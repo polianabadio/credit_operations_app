@@ -1,67 +1,50 @@
-# Objetivo do Processo
+﻿# Integração SICONFI
 
-Resgatar dados financeiros (RREO e RGF) da API do Siconfi, processá-los de forma eficiente e inserir apenas os registros novos em um banco de dados local, evitando duplicidade e garantindo a integridade dos dados.
+O botão Atualizar Dados Siconfi consulta automaticamente o histórico coberto pelo projeto (2021 até o ano corrente), ente 52, anexos 01 e 02 de RREO e RGF. Consulta todos os seis bimestres e três quadrimestres de cada ano. Respostas vazias não geram notificações.
 
----
+## Busca e armazenamento
 
-## Etapa 1: Resgate dos Dados Brutos
+A interface inicia a sincronização em segundo plano e consulta seu progresso.
+O ano atual (RREO e RGF) é processado antes do histórico. O simulador permanece
+disponível com os dados já gravados; o botão mostra etapa e consultas concluídas.
+Cliques repetidos não iniciam outra sincronização enquanto houver uma em curso.
+Fechar o aplicativo interrompe o trabalho; importações já confirmadas são
+preservadas e reutilizadas na próxima execução. A primeira sincronização completa
+ainda pode levar minutos; executar em segundo plano não reduz a latência da API.
 
-*   **Ação:** O script constrói uma URL de requisição para a API Siconfi, com os parâmetros (`an_exercicio`, `id_ente`, etc.) em uma ordem específica para garantir a compatibilidade com a API.
-*   **Processo:** Uma chamada `GET` é feita, e a resposta esperada é um JSON. O script extrai a lista de registros contida na chave `"items"`.
-*   **Resultado:** Uma lista de dicionários, onde cada dicionário representa um registro completo, com todas as colunas e dados brutos fornecidos pela API.
+Consultas concluídas são registradas na tabela `sincronizacao_siconfi`, no mesmo
+banco dos dados. Atualizações seguintes reutilizam os dados por 24 horas para o
+ano atual e por 7 dias para anos anteriores. Respostas vazias são consultadas
+novamente após 1 hora. Falhas não são armazenadas nesse controle; uma nova
+atualização tenta novamente. A chave inclui endpoint e todos os filtros,
+incluindo ente, ano, período, anexo e poder. O registro de importação é salvo na
+mesma transação dos dados, somente depois de todas as páginas serem recebidas.
 
----
+A primeira atualização após essa mudança ainda consulta todo o histórico para
+estabelecer esse controle. Nenhum período é considerado completo apenas porque
+já existem algumas linhas no banco. Durante o prazo de reutilização, publicações
+novas da API só serão buscadas na atualização seguinte ao vencimento do prazo.
 
-## Etapa 2: Filtragem Inicial
+- Até três consultas HTTP em andamento, com início limitado a uma requisição por segundo e gravações sequenciais.
+- Paginação por offset e hasMore, preservando os parâmetros.
+- Uma consulta de chaves existentes e uma transação por período/anexo.
+- Falha em uma página impede a gravação parcial daquele período/anexo.
+- Insere registros novos; retificações de valores existentes ainda não são aplicadas automaticamente.
+- Mantém o filtro preexistente de colunas RREO iniciadas por % e SALDO.
 
-*   **Ação:** Uma limpeza inicial é realizada para remover registros que não representam dados primários, como linhas de totais ou saldos calculados.
-*   **Processo:** O script verifica o valor da coluna `"coluna"` de cada registro. Se o valor começar com um termo pré-definido (ex: `'%'`, `'SALDO'`), o registro inteiro é descartado.
-*   **Resultado:** A mesma lista de dicionários da etapa anterior, porém contendo apenas os registros de dados relevantes.
+## Interface e análise
 
----
+O seletor lista os anos existentes na tabela RREO e é recarregado após a atualização. A análise usa o último período disponível por ano/anexo para não misturar acumulados de diferentes períodos.
 
-## Etapa 3: Criação das Chaves Únicas (A "Impressão Digital")
+Os diagnósticos ficam no terminal Python, sem aba de logs nem funções Eel para consultar ou limpar logs. Falhas técnicas geram mensagens simples na interface; ausência de dados é um resultado normal.
 
-*   **Ação:** Transformar cada registro de dados em uma "impressão digital" única e compacta para permitir uma verificação de existência rápida e precisa.
-*   **Processo:**
-    1.  O script divide a lista de registros filtrados em lotes (ex: de 50 em 50) para processamento.
-    2.  Para cada registro (dicionário) em um lote, ele extrai os valores de um conjunto pré-definido de colunas que, juntas, garantem a unicidade do registro.
-        *   **Colunas da Chave (Exemplo RREO):** `exercicio`, `periodo`, `instituicao`, `anexo`, `rotulo`, `coluna`, `conta`.
-    3.  Esses valores são agrupados em uma tupla (ex: `(2025, 5, ..., 'Receita Tributária')`).
-*   **Resultado:** Para cada lote, o script gera um conjunto (`set`) de tuplas. Cada tupla é a chave única de um registro da API.
+## Consulta de 2026
 
----
+Em 28/09/2026, a API retornou dados dos anexos 01 e 02 para RREO nos bimestres 1, 2 e 3, e RGF do Executivo no quadrimestre 1. Os demais períodos retornaram HTTP 200 com items vazio. Os dados encontrados foram importados no banco local.
 
-## Etapa 4: Consulta de Existência no Banco de Dados
+## Testes
 
-*   **Ação:** Perguntar ao banco de dados, de forma otimizada, quais das chaves geradas na etapa anterior já existem na tabela.
-*   **Processo:**
-    1.  O script constrói uma única consulta SQL por lote, combinando as chaves com `OR`.
-    2.  A consulta é cuidadosamente montada para lidar com valores `NULL` (`IS NULL`) e valores normais (`=`), garantindo precisão.
-    3.  A consulta é executada, retornando todos os registros do banco que correspondem a qualquer uma das chaves do lote.
-*   **Resultado:** Uma lista de objetos SQLAlchemy, representando as linhas completas do banco de dados que já existem.
+O RGF-Anexo 01 consulta os cinco poderes (E, L, J, M, D) para a [regra DTP](Regra%20DTP.md).
+O RGF-Anexo 02 mantém a consulta do Executivo.
 
----
-
-## Etapa 5: Reconciliação e Identificação de Novos Registros
-
-*   **Ação:** Comparar as chaves da API com as chaves encontradas no banco para determinar quais registros são genuinamente novos.
-*   **Processo:**
-    1.  As chaves dos registros retornados pelo banco são extraídas e colocadas em um `set` para comparação ultra-rápida.
-    2.  O script percorre os registros originais do lote da API e verifica se a sua chave existe no conjunto de chaves do banco.
-    3.  Se a chave de um registro da API não for encontrada, o registro completo (dicionário) é adicionado a uma lista de "novos registros para inserir".
-*   **Resultado:** Uma lista contendo apenas os dicionários dos registros que precisam ser salvos no banco de dados.
-
----
-
-## Etapa 6: Inserção em Massa no Banco de Dados
-
-*   **Ação:** Salvar os novos registros identificados de forma segura e eficiente.
-*   **Processo:**
-    1.  Se houver registros na lista de "novos registros", o script utiliza o método `bulk_insert_mappings` do SQLAlchemy.
-    2.  Este método agrupa todos os novos registros em uma única transação `INSERT`, o que é muito mais performático do que inserir um por um.
-    3.  Se a operação for bem-sucedida, a transação é confirmada com `commit()`.
-    4.  Se qualquer erro ocorrer, a transação é revertida com `rollback()`, garantindo a integridade e consistência do banco de dados.
-*   **Resultado:** Os novos dados são salvos de forma permanente na tabela, e o processo continua para o próximo lote até que todos os dados tenham sido processados.
-
----
+python -m pytest tests -q -p no:cacheprovider

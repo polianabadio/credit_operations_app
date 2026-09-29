@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, Date
+from sqlalchemy import Column, Integer, String, Numeric, Date, DateTime
 from sqlalchemy.orm import declarative_base
 
 # Base para os modelos declarativos
@@ -10,6 +10,13 @@ class Database:
         self.session = None
 
 db = Database()
+
+
+class SincronizacaoSiconfi(Base):
+    __tablename__ = 'sincronizacao_siconfi'
+    chave = Column(String(1000), primary_key=True)
+    consultado_em = Column(DateTime, nullable=False)
+    quantidade = Column(Integer, nullable=False)
 
 class RREO(Base):
     __tablename__ = 'rreo'

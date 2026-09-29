@@ -9,7 +9,6 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM carregado. Inicializando aplicação...');
     configurarEventListeners();
     carregarDadosIniciais();
-    initializeLogComponent();
     initializeMonitoringComponent();
     // Garante que a seção de simulação seja exibida por padrão ao carregar
     mostrarSecao('secao-simulacao');
@@ -19,13 +18,11 @@ document.addEventListener('DOMContentLoaded', function() {
 function mostrarSecao(nomeSecao) {
     // Esconde todas as seções principais
     document.getElementById('secao-simulacao').classList.add('hidden');
-    document.getElementById('secao-logs').classList.add('hidden');
     document.getElementById('secao-configuracoes').classList.add('hidden');
     // Adicione outras seções aqui
 
     // Remove a classe de 'ativo' de todos os links de navegação
     document.getElementById('nav-simulacao').classList.remove();
-    document.getElementById('nav-logs').classList.remove();
     document.getElementById('nav-configuracoes').classList.remove();
     // Mostra a seção desejada
     const secaoParaMostrar = document.getElementById(nomeSecao);
@@ -73,10 +70,6 @@ function configurarEventListeners() {
         mostrarSecao('secao-simulacao');
     });
 
-    document.getElementById('nav-logs').addEventListener('click', (e) => {
-        e.preventDefault();
-        mostrarSecao('secao-logs');
-    });
 
     document.getElementById('nav-configuracoes').addEventListener('click', (e) => {
         e.preventDefault();
@@ -123,7 +116,9 @@ async function executarSimulacao() {
         
         // A nova função central de renderização
         renderizarResultados(resultado);
-        mostrarMensagem('Análise concluída com sucesso!', 'success');
+        mostrarMensagem(resultado.circuit_breaker
+            ? 'FALHA: Operação de Crédito Negada (Circuit Breaker)'
+            : 'Análise concluída.', resultado.circuit_breaker ? 'error' : 'info');
 
     } catch (error) {
         console.error('Erro ao executar simulação:', error);
@@ -136,36 +131,29 @@ async function executarSimulacao() {
 async function atualizarDadosSiconfi() {
     console.log("Iniciando atualização de dados Siconfi...");
     mostrarCarregamento(true, 'btn-atualizar');
-    mostrarMensagem('Atualizando dados RREO e RGF... Isso pode levar um momento.', 'info');
     
     try {
-        // Executa as duas atualizações em paralelo para agilizar
-        const [resRREO, resRGF] = await Promise.all([
-            eel.atualizar_rreo_py('now')(),
-            eel.atualizar_rgf_py('now')()
-        ]);
-
-        const [resRREO2, resRGF2] = await Promise.all([
-            eel.atualizar_rreo_py('all')(),
-            eel.atualizar_rgf_py('all')()
-        ]);
-
-        console.log("Resultado da atualização RREO atual:", resRREO);
-        console.log("Resultado da atualização RGF atual:", resRGF);
-        console.log("Resultado da atualização RREO anterior:", resRREO2);
-        console.log("Resultado da atualização RGF anterior:", resRGF2);
-
-        if (resRREO.status === 'error' || resRGF.status === 'error') {
-            throw new Error('Uma ou mais atualizações falharam. Verifique o console.');
+        let estado = await eel.iniciar_atualizacao_siconfi()();
+        const botao = document.getElementById('btn-atualizar');
+        let etapaAnterior = '';
+        while (estado.running) {
+            botao.querySelector('.loading-label').textContent = estado.total
+                ? `${estado.etapa} · ${estado.concluidas}/${estado.total}` : estado.etapa;
+            if (estado.etapa !== etapaAnterior) {
+                await carregarDadosIniciais();
+                etapaAnterior = estado.etapa;
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            estado = await eel.status_atualizacao_siconfi()();
         }
-
-        mostrarMensagem('Dados atualizados com sucesso! A lista de anos será recarregada.', 'success');
-        // Recarrega os anos disponíveis, pois novos dados podem ter sido adicionados
         await carregarDadosIniciais();
+        mostrarMensagem(estado.falhas
+            ? 'Atualização parcial. Os dados disponíveis podem ser consultados; tente novamente mais tarde.'
+            : 'Dados atualizados.', estado.falhas ? 'warning' : 'success');
 
     } catch (error) {
         console.error('Erro ao atualizar dados Siconfi:', error);
-        mostrarMensagem(`Erro na atualização: ${error.message}`, 'error');
+        mostrarMensagem('Não foi possível concluir a atualização. Tente novamente mais tarde.', 'error');
     } finally {
         mostrarCarregamento(false, 'btn-atualizar');
     }
@@ -198,7 +186,8 @@ function renderizarResultados(resultado) {
     
     const todasAsRegras = [
         ...(resultado.regras_violadas || []),
-        ...(resultado.regras_cumpridas || [])
+        ...(resultado.regras_cumpridas || []),
+        ...(resultado.regras_sem_informacao || [])
     ];
 
     if (todasAsRegras.length === 0) {
@@ -211,7 +200,7 @@ function renderizarResultados(resultado) {
         
         const statusClasse = regra.status === 'Cumprida' 
             ? 'bg-green-100 text-green-800' 
-            : 'bg-red-100 text-red-800';
+            : regra.status === 'Sem informação' ? 'bg-gray-100 text-gray-800' : 'bg-red-100 text-red-800';
 
         tr.innerHTML = `
             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${regra.nome}</td>
@@ -226,6 +215,15 @@ function renderizarResultados(resultado) {
             </td>
         `;
 
+        if (regra.tipo === 'dtp') {
+            tr.children[1].querySelector('span').textContent = regra.aprovado ? 'Aprovado' : 'Falha';
+            tr.children[2].textContent = `${formatarPercentual(regra.dados_calculados.percentual)} — ${regra.descricao}`;
+        }
+        if (regra.tipo === 'dcl') {
+            tr.children[1].querySelector('span').textContent = regra.aprovado === null
+                ? 'Sem informação' : regra.aprovado ? 'Aprovado' : 'Recusado';
+        }
+
         // Adiciona o listener no botão para mostrar o modal com os dados da regra específica
         tr.querySelector('.ver-detalhes-btn').addEventListener('click', () => mostrarDetalhesRegra(regra));
         
@@ -237,10 +235,16 @@ function renderizarResultados(resultado) {
 
 
 function mostrarDetalhesRegra(regra) {
+    const dtp = regra.tipo === 'dtp' || regra.tipo === 'dcl';
+    for (const id of ['modal-descricao', 'modal-proximo-passo', 'modal-base-normativa', 'modal-objetivo']) {
+        document.getElementById(id).parentElement.hidden = dtp;
+    }
+    document.querySelector('#modal-dados-calculados-container > dt').hidden = dtp;
     // Popula o modal com os dados detalhados da regra
     document.getElementById('modal-title').textContent = regra.nome;
-    document.getElementById('modal-status').textContent = regra.status;
-    document.getElementById('modal-status').className = `font-semibold ${regra.status === 'Cumprida' ? 'text-green-600' : 'text-red-600'}`;
+    document.getElementById('modal-status').hidden = dtp;
+    document.getElementById('modal-status').textContent = dtp ? '' : regra.status;
+    document.getElementById('modal-status').className = `font-semibold ${regra.status === 'Cumprida' ? 'text-green-600' : regra.status === 'Sem informação' ? 'text-gray-600' : 'text-red-600'}`;
     
     document.getElementById('modal-descricao').textContent = regra.descricao;
     document.getElementById('modal-proximo-passo').textContent = regra.proximo_passo;
@@ -250,8 +254,64 @@ function mostrarDetalhesRegra(regra) {
     // Constrói a visualização dos dados calculados
     const calculadosContainer = document.getElementById('modal-dados-calculados');
     calculadosContainer.innerHTML = ''; // Limpa
+    calculadosContainer.classList.toggle('dtp-cards', dtp);
     
-    if (regra.dados_calculados) {
+    if (regra.tipo === 'dtp') {
+        const dados = regra.dados_calculados;
+        const resumo = document.createElement('article');
+        resumo.className = `dtp-card ${regra.aprovado ? 'dtp-card-approved' : 'dtp-card-failed'}`;
+        const titulo = document.createElement('h4');
+        titulo.className = 'dtp-summary-title';
+        titulo.textContent = `Total DTP: ${formatarPercentual(dados.percentual)}`;
+        const decisao = document.createElement('p');
+        decisao.className = 'dtp-message';
+        decisao.textContent = `${regra.descricao} — Limite: 60%`;
+        const referencia = document.createElement('p');
+        referencia.className = 'dtp-reference';
+        referencia.textContent = `${dados.quadrimestre}º quadrimestre · Ano de referência ${dados.ano}`;
+        resumo.append(titulo, decisao, referencia);
+        calculadosContainer.appendChild(resumo);
+        const contribuicoes = document.createElement('dl');
+        contribuicoes.className = 'dtp-contributions';
+        resumo.appendChild(contribuicoes);
+        for (const item of dados.poderes) {
+            const linha = document.createElement('div');
+            linha.className = 'dtp-contribution-row';
+            const heading = document.createElement('dt');
+            heading.textContent = item.poder;
+            const value = document.createElement('dd');
+            value.textContent = formatarPercentual(item.percentual);
+            linha.append(heading, value);
+            contribuicoes.appendChild(linha);
+        }
+    } else if (regra.tipo === 'dcl') {
+        const dados = regra.dados_calculados;
+        const card = document.createElement('article');
+        card.className = `dtp-card ${regra.aprovado === null ? 'dtp-contribution' : regra.aprovado ? 'dtp-card-approved' : 'dtp-card-failed'}`;
+        const titulo = document.createElement('h4');
+        titulo.className = 'dtp-summary-title';
+        titulo.textContent = regra.aprovado === null ? 'Sem informação' : regra.aprovado ? 'Aprovado' : 'Recusado';
+        const descricao = document.createElement('p');
+        descricao.className = 'dtp-message';
+        descricao.textContent = regra.descricao;
+        const referencia = document.createElement('p');
+        referencia.className = 'dtp-reference';
+        referencia.textContent = `Relatório do ${dados.quadrimestre}º quadrimestre · Ano de referência ${dados.ano}`;
+        const lista = document.createElement('dl');
+        lista.className = 'dtp-contributions';
+        for (const item of dados.valores) {
+            const linha = document.createElement('div');
+            linha.className = 'dtp-contribution-row';
+            const nome = document.createElement('dt');
+            nome.textContent = item.rotulo;
+            const valor = document.createElement('dd');
+            valor.textContent = item.percentual === null ? 'Sem informação' : formatarPercentual(item.percentual);
+            linha.append(nome, valor);
+            lista.appendChild(linha);
+        }
+        card.append(titulo, descricao, referencia, lista);
+        calculadosContainer.appendChild(card);
+    } else if (regra.dados_calculados) {
         for (const [key, value] of Object.entries(regra.dados_calculados)) {
             const div = document.createElement('div');
             div.className = 'py-2';
@@ -289,6 +349,10 @@ function esconderModal() {
 function formatarMoeda(valor) {
     if (valor === null || valor === undefined || isNaN(valor)) return 'R$ 0,00';
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
+}
+
+function formatarPercentual(valor) {
+    return new Intl.NumberFormat('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(valor) + '%';
 }
 
 function mostrarMensagem(mensagem, tipo = 'info') {
@@ -331,12 +395,14 @@ function mostrarCarregamento(mostrar, elementoId) {
     if (!botao) return;
 
     if (mostrar) {
+        if (botao.disabled) return;
         botao.disabled = true;
+        botao.setAttribute('aria-busy', 'true');
         botao.dataset.originalText = botao.innerHTML; // Salva o texto original
-        botao.innerHTML = `<span class="relative px-5 py-2.5 transition-all ease-in duration-75 bg-white hover:text-white dark:bg-gray-900 rounded-md group-hover:bg-transparent group-hover:dark:bg-transparent">
-                               <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-gray-500 inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Carregando... </span>`;
+        botao.innerHTML = `<span class="loading-orbit" aria-hidden="true"></span><span class="loading-label" role="status">${elementoId === 'btn-atualizar' ? 'Sincronizando dados' : 'Analisando operação'}</span>`;
     } else {
         botao.disabled = false;
+        botao.removeAttribute('aria-busy');
         botao.innerHTML = botao.dataset.originalText; // Restaura o texto original
     }
 }

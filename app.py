@@ -6,6 +6,17 @@ backend (motor de regras, acesso a dados) e o frontend (JavaScript/Eel).
 """
 
 import eel
+from src.simulador.sync_job import iniciar_atualizacao, status_atualizacao
+
+
+@eel.expose
+def iniciar_atualizacao_siconfi():
+    return iniciar_atualizacao()
+
+
+@eel.expose
+def status_atualizacao_siconfi():
+    return status_atualizacao()
 
 # Módulos da nossa arquitetura
 from src.simulador.rule_engine import analisar_operacao
@@ -31,16 +42,6 @@ criar_diretorios()
 if not configurar_banco_dados():
     log.error("Falha na configuração do banco de dados. Encerrando aplicação.")
     exit(1)
-
-# ========== FUNÇÕES DE LOGGING EXPOSTAS ==========
-
-@eel.expose
-def get_all_logs():
-    return log.get_all_logs()
-
-@eel.expose
-def clear_logs():
-    log.clear_logs()
 
 # ========== FUNÇÕES DE CONFIGURAÇÃO EXPOSTAS ==========
 
@@ -154,28 +155,30 @@ def analisar_operacao_py(ano: int, valor_requisitado: float):
         return {"status": "erro", "mensagem": f"Ocorreu um erro crítico no backend: {e}"}
 
 @eel.expose
-def atualizar_rreo_py(status='now'):
+def atualizar_rreo_py(status='all'):
     """
     Dispara a rotina de atualização dos dados do RREO a partir da API do Siconfi.
     """
     try:
         log.info(f"Disparando atualização RREO.", modulo="app.py", funcao="atualizar_rreo_py", status=status)
         resultado = atualizar_operacoes_rreo(status)
-        log.success("Atualização RREO concluída.", modulo="app.py", funcao="atualizar_rreo_py", status=status)
+        registrar = log.error if resultado['status'] == 'error' else log.warning if resultado['status'] == 'warning' else log.success
+        registrar(resultado['message'], modulo="app.py", funcao="atualizar_rreo_py", status=status)
         return resultado
     except Exception as e:
         log.error(f"Erro na atualização RREO:", details=str(e), modulo="app.py", funcao="atualizar_rreo_py", traceback=True)
         return {"message": f"Erro: {str(e)}", "status": "error"}
 
 @eel.expose
-def atualizar_rgf_py(status='now'):
+def atualizar_rgf_py(status='all'):
     """
     Dispara a rotina de atualização dos dados do RGF a partir da API do Siconfi.
     """
     try:
         log.info(f"Disparando atualização RGF.", modulo="app.py", funcao="atualizar_rgf_py", status=status)
         resultado = atualizar_operacoes_rgf(status)
-        log.success("Atualização RGF concluída.", modulo="app.py", funcao="atualizar_rgf_py", status=status)
+        registrar = log.error if resultado['status'] == 'error' else log.warning if resultado['status'] == 'warning' else log.success
+        registrar(resultado['message'], modulo="app.py", funcao="atualizar_rgf_py", status=status)
         return resultado
     except Exception as e:
         log.error(f"Erro na atualização RGF:", details=str(e), modulo="app.py", funcao="atualizar_rgf_py", traceback=True)

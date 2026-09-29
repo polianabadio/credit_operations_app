@@ -6,7 +6,6 @@ import sys
 from datetime import datetime
 from typing import List, Dict, Any
 from enum import Enum
-import eel
 
 class LogLevel(Enum):
     """Níveis de log com cores associadas para o frontend."""
@@ -51,7 +50,7 @@ class LoggerComponent:
             'context': kwargs  # <--- Armazena todos os dados extras aqui
         }
         
-        self.logs.append(log_entry)
+        # Diagnósticos ficam no terminal do desenvolvedor.
         
         # Mapeia nosso nível customizado para um nível padrão do logging
         log_level_map = {
@@ -70,12 +69,6 @@ class LoggerComponent:
         # Usa o nível mapeado para o logger do backend
         self.logger.log(backend_log_level, full_message)
 
-        # Envia o log para o frontend em tempo real
-        try:
-            eel.add_log_message(log_entry)
-        except Exception:
-            pass
-            
     # --- Funções públicas atualizadas para aceitar **kwargs ---
     def debug(self, message: str, details: str = None, **kwargs): self._log(LogLevel.DEBUG, message, details, **kwargs)
     def info(self, message: str, details: str = None, **kwargs): self._log(LogLevel.INFO, message, details, **kwargs)
@@ -88,10 +81,6 @@ class LoggerComponent:
     def clear_logs(self):
         self.logs.clear()
         self.info("O terminal de logs foi limpo pelo usuário.", modulo="logger.py")
-        try:
-            eel.clear_logs_frontend()
-        except Exception:
-            pass
 
     def get_all_logs(self):
         return self.logs

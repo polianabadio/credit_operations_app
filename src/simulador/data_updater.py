@@ -6,14 +6,27 @@ através de APIs externas (Siconfi), extraídas das rotas Flask originais.
 """
 
 import requests
-from datetime import datetime
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import and_, or_
+import json
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+from threading import Lock
+from time import monotonic, sleep
+from sqlalchemy.orm import Session
 
 from .config import configurar_banco_dados
-from .database_models import RREO, RGF, db
-from .utils import calcular_bimestre_atual, calcula_quadrimestre_atual
+from .database_models import RREO, RGF, db, SincronizacaoSiconfi
 from .logger import log
+
+_http_lock = Lock()
+_ultima_requisicao = 0.0
+
+
+def _aguardar_limite_api():
+    """A API do Tesouro permite uma requisição por segundo."""
+    global _ultima_requisicao
+    with _http_lock:
+        sleep(max(0, 1 - (monotonic() - _ultima_requisicao)))
+        _ultima_requisicao = monotonic()
 
 
 # ----------- Seção de atualização de dados via API do Siconfi -----------
@@ -22,271 +35,142 @@ def _criar_chave_identificadora(item, chaves):
     """Cria uma tupla única para um item com base em um conjunto de chaves."""
     return tuple(item.get(chave) for chave in chaves)
 
-def _atualizar_dados_siconfi(modelo_db, endpoint, params_base, periodo_params):
-    """
-    Função genérica para buscar, processar e salvar dados do Siconfi.
-
-    Args:
-        modelo_db: A classe do modelo SQLAlchemy (ex: RREO, RGF).
-        endpoint (str): O endpoint da API (ex: 'rreo', 'rgf').
-        params_base (dict): Parâmetros base da API que não mudam (esfera, ente, etc).
-        periodo_params (list): Uma lista de dicionários, cada um contendo os parâmetros
-                                de período para uma chamada de API (ano, anexo, etc).
-
-    Returns:
-        dict: Resultado da operação com sucessos e falhas.
-    """
-    TOTAL_INSERIDOS = 0 # Contador total de registros inseridos
-    sucessos, falhas = [], []
-    # Define o conteúdo dos registros indesejados para filtragem
-    if endpoint == 'rreo':
-        conteudo_indesejado = ['%', 'SALDO']
-    elif endpoint == 'rgf':
-        conteudo_indesejado = []
-    
-    # Define as colunas que formam uma chave única para cada modelo
-    chaves_unicas = {
-        'RREO': ['exercicio', 'periodo', 'instituicao', 'anexo', 'rotulo', 'coluna', 'conta'],
-        'RGF': ['exercicio', 'periodo', 'instituicao', 'co_poder', 'anexo', 'rotulo', 'coluna', 'cod_conta']
-    }
-
-    param_order = {
-        'rreo': [
-            'an_exercicio', 'nr_periodo', 'co_tipo_demonstrativo', 
-            'no_anexo', 'co_esfera', 'id_ente'
-        ],
-        'rgf': [
-            'an_exercicio', 'in_periodicidade', 'nr_periodo', 
-            'co_tipo_demonstrativo', 'no_anexo', 'co_esfera', 
-            'co_poder', 'id_ente'
-        ]
-    }
-
-    chaves_identificadoras = chaves_unicas.get(modelo_db.__name__, [])
-
-    for params_periodo in periodo_params:
-        # Monta a URL completa com os parâmetros
-        params_completos = {**params_base, **params_periodo}
-        base_url = f"https://apidatalake.tesouro.gov.br/ords/siconfi/tt/{endpoint}"
-        
-        # Pega a lista ordenada de chaves para o endpoint atual
-        ordem_correta = param_order.get(endpoint, [])
-        
-        # Constrói a query string (ex: "chave1=valor1&chave2=valor2")
-        query_params = []
-        for key in ordem_correta:
-            if key in params_completos:
-                query_params.append(f"{key}={params_completos[key]}")
-        
-        query_string = "&".join(query_params)
-        
-        # Monta a URL final
-        url_completa = f"{base_url}?{query_string}"
-        
-        info_log = ", ".join([f"{k}={v}" for k, v in params_periodo.items()])
-        log.info(f"Consultando API Siconfi. {endpoint} - {info_log}", modulo="data_updater.py", funcao="_atualizar_dados_siconfi", endpoint=endpoint, url=url_completa)
+def _atualizar_dados_siconfi(modelo_db, endpoint, params_base, periodo_params, progresso=None):
+    """Busca todas as páginas e salva cada período em uma única transação."""
+    sucessos, falhas, avisos = [], [], []
+    engine = db.session.get_bind()
+    SincronizacaoSiconfi.__table__.create(engine, checkfirst=True)
+    agora = datetime.now()
+    def chave_consulta(periodo):
+        return json.dumps([endpoint, {**params_base, **periodo}], sort_keys=True)
+    pendentes = []
+    with Session(bind=engine) as session:
+        consultas = {r.chave: r for r in session.query(SincronizacaoSiconfi).all()}
+        for periodo in periodo_params:
+            anterior = consultas.get(chave_consulta(periodo))
+            validade = timedelta(hours=1) if anterior and anterior.quantidade == 0 else (
+                timedelta(days=7) if periodo['an_exercicio'] < agora.year else timedelta(hours=24))
+            if anterior and timedelta(0) <= agora - anterior.consultado_em < validade:
+                sucessos.append(periodo)
+            else:
+                pendentes.append(periodo)
+    log.info('Consultas pendentes Siconfi.', endpoint=endpoint,
+             pendentes=len(pendentes), reutilizadas=len(sucessos))
+    concluidas = len(sucessos)
+    if progresso:
+        progresso(concluidas, len(periodo_params))
+    def registrar_consulta(session, periodo, quantidade):
+        session.merge(SincronizacaoSiconfi(chave=chave_consulta(periodo),
+                      consultado_em=datetime.now(), quantidade=quantidade))
+    chaves = {
+        'rreo': ['exercicio', 'periodo', 'instituicao', 'anexo', 'rotulo', 'coluna', 'conta'],
+        'rgf': ['exercicio', 'periodo', 'instituicao', 'co_poder', 'anexo', 'rotulo', 'coluna', 'cod_conta'],
+    }[endpoint]
+    base_url = f"https://apidatalake.tesouro.gov.br/ords/siconfi/tt/{endpoint}"
+    # Somente HTTP em paralelo; gravações permanecem sequenciais.
+    def buscar(periodo):
         try:
-            #print(f"Requisição para {url_completa} com params {params_base}")  # Linha de debug
-            response = requests.get(url_completa, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            items = data.get("items")
-            if not items:
-                falhas.append({**params_periodo, "motivo": "Nenhum dado encontrado."})
-                continue
-        
-            # Filtra itens indesejados antes de qualquer processamento
-            itens_filtrados = [
-                item for item in items 
-                if not any(item['coluna'].startswith(p) for p in conteudo_indesejado)
-            ]
+            with requests.Session() as http:
+                items, offset = [], 0
+                while True:
+                    _aguardar_limite_api()
+                    response = http.get(base_url, params={**params_base, **periodo, 'offset': offset}, timeout=(10, 30))
+                    response.raise_for_status()
+                    data = response.json()
+                    if not isinstance(data, dict) or not isinstance(data.get('items'), list):
+                        raise ValueError('Resposta inválida: a API não retornou uma lista items.')
+                    pagina = data['items']
+                    items.extend(pagina)
+                    if not data.get('hasMore', False):
+                        return items
+                    if not pagina:
+                        raise ValueError('Paginação inválida: página vazia com hasMore=true.')
+                    offset += len(pagina)
+        except Exception as exc:
+            return exc
 
-            if not itens_filtrados:
-                sucessos.append(params_periodo) # Sucesso, mas sem dados novos
-                continue
-            log.debug(f"{len(itens_filtrados)} registros resgatados após filtragem inicial.", modulo="data_updater.py", funcao="_atualizar_dados_siconfi", total_api=len(items))
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for periodo, resposta in zip(pendentes, pool.map(buscar, pendentes)):
+            log.info('Consultando API Siconfi.', endpoint=endpoint, **periodo)
+            try:
+                if isinstance(resposta, Exception):
+                    raise resposta
+                items = resposta
+                if not items:
+                    with Session(bind=engine) as session:
+                        registrar_consulta(session, periodo, 0)
+                        session.commit()
+                    aviso = {**periodo, 'motivo': 'SICONFI não retornou dados para este período e anexo.'}
+                    avisos.append(aviso)
+                    log.info(aviso['motivo'], endpoint=endpoint, **periodo)
+                    continue
 
-            tamanho_lote = 50
-            registros_inseridos_total = 0
-            total_lotes = (len(itens_filtrados) // tamanho_lote) + 1
-            lotes_processados = 0
-            log.info(f"Processando {total_lotes} lote(s). Total de {len(itens_filtrados)} registro(s)", modulo="data_updater.py", funcao="_atualizar_dados_siconfi")
-            for i in range(0, len(itens_filtrados), tamanho_lote):
-                lote_itens = itens_filtrados[i:i + tamanho_lote]
-            
-                # 1. Cria um conjunto de chaves de identificação para cada lote 
-                chaves_api_lote = {_criar_chave_identificadora(item, chaves_identificadoras) for item in lote_itens}
+                filtrados = [item for item in items if endpoint != 'rreo'
+                             or not (item.get('coluna') or '').startswith(('%', 'SALDO'))]
+                # Uma consulta de chaves por período, em vez de consultas OR a cada 50 linhas.
+                with Session(bind=db.session.get_bind()) as session:
+                    query = session.query(*(getattr(modelo_db, chave) for chave in chaves)).filter(
+                        modelo_db.exercicio == periodo['an_exercicio'],
+                        modelo_db.periodo == periodo['nr_periodo'],
+                        modelo_db.anexo == periodo['no_anexo'])
+                    existentes = {tuple(row) for row in query.all()}
+                    novos = []
+                    for item in filtrados:
+                        chave = _criar_chave_identificadora(item, chaves)
+                        if chave not in existentes:
+                            novos.append(item)
+                            existentes.add(chave)
+                    if novos:
+                        session.bulk_insert_mappings(modelo_db, novos)
+                    registrar_consulta(session, periodo, len(items))
+                    session.commit()
+                sucessos.append(periodo)
+                log.info('Período processado.', endpoint=endpoint, **periodo,
+                         registros_resgatados=len(filtrados), registros_inseridos=len(novos),
+                         registros_ja_existentes=len(filtrados) - len(novos))
+            except Exception as exc:
+                motivo = ('Tempo limite excedido ao consultar o SICONFI.'
+                          if isinstance(exc, requests.Timeout) else str(exc) or type(exc).__name__)
+                falhas.append({**periodo, 'motivo': motivo})
+                log.error('Falha na atualização Siconfi.', details=motivo, endpoint=endpoint, **periodo)
+            finally:
+                concluidas += 1
+                if progresso:
+                    progresso(concluidas, len(periodo_params))
+    return sucessos, falhas, avisos
 
-                '''
-                # --- DEBUG ETAPA 3 ---
-                print("\n--- DEBUG: ETAPA 3 (Chaves da API) ---")
-                if chaves_api_lote:
-                    primeira_chave_api = next(iter(chaves_api_lote))
-                    print(f"Exemplo de chave da API: {primeira_chave_api}")
-                    print("Tipos de dados na chave da API:")
-                    for i, parte in enumerate(primeira_chave_api):
-                        print(f"  - Parte {i} ({chaves_identificadoras[i]}): '{parte}' (Tipo: {type(parte)})")
-                else:
-                    print("Nenhuma chave gerada para o lote da API.")
-                # --- FIM DEBUG ---
-                '''
 
-                filtros_db = []  # 2. Constrói uma consulta para buscar no banco os registros em lotes que correspondem a essas chaves.
-                for chave_tupla in chaves_api_lote:
-                    condicoes_and = [
-                        (getattr(modelo_db, nome_chave).is_(None) if valor is None else getattr(modelo_db, nome_chave) == valor)
-                        for nome_chave, valor in zip(chaves_identificadoras, chave_tupla)
-                    ]
-                    filtros_db.append(and_(*condicoes_and))
+def _resultado_atualizacao(nome, sucessos, falhas, avisos):
+    status = 'error' if falhas else 'success'
+    return {'message': f'Consulta {nome} concluída: {len(sucessos)} período(s) processado(s), '
+                       f'{len(avisos)} sem dados e {len(falhas)} falha(s).',
+            'status': status, 'sucessos': sucessos, 'falhas': falhas, 'avisos': avisos}
 
-                if filtros_db: registros_existentes = db.session.query(modelo_db).filter(or_(*filtros_db)).all()
-                else: registros_existentes = []
 
-                chaves_existentes = {_criar_chave_identificadora(vars(reg), chaves_identificadoras) for reg in registros_existentes}
+def _periodos_para_consulta(endpoint, status='all'):
+    ano_atual = datetime.now().year
+    # Mantém a cobertura histórica do projeto, incluindo todos os períodos.
+    anos = [ano_atual] if status == 'now' else range(2021, ano_atual + 1)
+    quantidade = 6 if endpoint == 'rreo' else 3
+    return [dict(an_exercicio=ano, nr_periodo=periodo,
+                 no_anexo=f'{endpoint.upper()}-Anexo {anexo:02}',
+                 **({'co_poder': poder} if endpoint == 'rgf' else {}))
+            for ano in reversed(list(anos))
+            for periodo in range(1, quantidade + 1)
+            for anexo in (1, 2)
+            for poder in (('E', 'L', 'J', 'M', 'D') if endpoint == 'rgf' and anexo == 1 else ('E',))]
 
-                '''
-                # --- DEBUG ETAPA 4 ---
-                print("\n--- DEBUG: ETAPA 4 (Chaves do Banco de Dados) ---")
-                if chaves_existentes:
-                    primeira_chave_db = next(iter(chaves_existentes))
-                    print(f"Exemplo de chave do Banco: {primeira_chave_db}")
-                    print("Tipos de dados na chave do Banco:")
-                    for i, parte in enumerate(primeira_chave_db):
-                       print(f"  - Parte {i} ({chaves_identificadoras[i]}): '{parte}' (Tipo: {type(parte)})")
-                else:
-                    print("Nenhuma chave correspondente encontrada no banco de dados.")
-                # --- FIM DEBUG ---
-                '''
 
-                # --- DEBUG ETAPA 5 ---
-                #print("\n--- DEBUG: ETAPA 5 (Comparação) ---")
-                registros_novos_para_inserir = []
-                for item in lote_itens:
-                    chave_api_item = _criar_chave_identificadora(item, chaves_identificadoras)
-                    encontrado_no_db = chave_api_item in chaves_existentes
-                    #print(f"Verificando chave: {chave_api_item}")
-                    #print(f" -> Encontrada no DB? {encontrado_no_db}")
-                    if not encontrado_no_db:
-                        registros_novos_para_inserir.append(item)
-                # log.debug(f"Resultado: {len(registros_novos_para_inserir)} registros marcados como novos para inserção.")
-                # --- FIM DEBUG ---
+def atualizar_operacoes_rreo(status='all', progresso=None):
+    params = dict(co_tipo_demonstrativo='RREO', co_esfera='E', id_ente=52)
+    return _resultado_atualizacao('RREO', *_atualizar_dados_siconfi(
+        RREO, 'rreo', params, _periodos_para_consulta('rreo', status), progresso))
 
-                # Insere os novos registros em lote.
-                if registros_novos_para_inserir:
-                    # Transação atômica para a inserção
-                    try:
-                        db.session.bulk_insert_mappings(modelo_db, registros_novos_para_inserir)
-                        db.session.commit() # Confirma a transação para este lote
-                        #log.info(f"Lote salvo! {len(registros_novos_para_inserir)} novos registros inseridos.")
-                        lotes_processados += 1
-                        registros_inseridos_total += len(registros_novos_para_inserir)
-                    except Exception as e_transacao:
-                        log.error(f"Erro ao salvar lote no banco de dados: {e_transacao}")
-                        db.session.rollback() # Reverte a transação em caso de erro
-                        raise e_transacao # Propaga o erro para o bloco principal
-                    
-            log.success(f"Lotes salvos no banco de dados para {params_periodo['no_anexo']}.", details=f'Total de Lotes armazenados: {lotes_processados}/{total_lotes}',modulo="data_updater.py", funcao="_atualizar_dados_siconfi", registros_resgatados=len(itens_filtrados),registros_inseridos=registros_inseridos_total, lotes_processados=lotes_processados, total_lotes=total_lotes)
-            sucessos.append(params_periodo)
-            TOTAL_INSERIDOS += registros_inseridos_total
-            
-        except requests.exceptions.RequestException as e:
-            falhas.append({**params_periodo, "motivo": f"Erro de requisição: {e}"})
-        except SQLAlchemyError as e:
-            db.session.rollback()
-            falhas.append({**params_periodo, "motivo": f"Erro no banco: {str(e)}"})
-        except Exception as e:
-            db.session.rollback()
-            falhas.append({**params_periodo, "motivo": f"Erro inesperado: {str(e)}"})
 
-    log.success(f"Processo de atualização para endpoint '{endpoint}' concluído.", details=f'Total geral de registros novos inseridos: {TOTAL_INSERIDOS}')
-    return sucessos, falhas
-
-def atualizar_operacoes_rreo(status='now'):
-    """
-    Atualiza os dados da tabela RREO através da API do Siconfi.
-    """
-    try:
-        # Definição dos períodos
-        if status == 'now':
-            anos = [datetime.now().year]
-            bimestre = calcular_bimestre_atual() - 1 if calcular_bimestre_atual() > 1 else 1
-        else:
-            anos = list(range(2021, datetime.now().year)) 
-            bimestre = 6
-
-        # Parâmetros que não mudam
-        params_base = {
-            "co_tipo_demonstrativo": "RREO",
-            "co_esfera": "E",
-            "id_ente": 52
-        }
-        
-        # Parâmetros que mudam a cada iteração (ano e anexo)
-        periodo_params = []
-        for ano in anos:
-            for anexo in ["RREO-Anexo 01", "RREO-Anexo 02"]:
-                periodo_params.append({
-                    "an_exercicio": ano,
-                    "nr_periodo": bimestre,
-                    "no_anexo": anexo
-                })
-        
-        # Chama a função genérica
-        sucessos, falhas = _atualizar_dados_siconfi(RREO, 'rreo', params_base, periodo_params)
-
-        if falhas:
-            return {"message": "Importação RREO concluída com erros.", "sucessos": sucessos, "falhas": falhas, "status": "error"}
-
-        return {"message": "Dados RREO importados com sucesso!", "sucessos": sucessos, "status": "success"}
-
-    except Exception as e:
-        log.error("Erro geral na atualização RREO")
-        return {"message": f"Erro geral: {str(e)}", "sucessos": [], "falhas": [], "status": "error"}
-
-def atualizar_operacoes_rgf(status='now'):
-    """
-    Atualiza os dados da tabela RGF através da API do Siconfi.
-    """
-    try:
-        # Período
-        if status == 'now':
-            anos = [datetime.now().year]
-            quadrimestre = calcula_quadrimestre_atual() -1 if calcula_quadrimestre_atual() > 1 else 1
-        else:
-            anos = list(range(2021, datetime.now().year))
-            quadrimestre = 3
-        
-        # Parâmetros que não mudam
-        params_base = {
-            "in_periodicidade": "Q",
-            "co_tipo_demonstrativo": "RGF",
-            "co_esfera": "E",
-            "id_ente": 52
-        }
-
-        # Parâmetros que mudam a cada iteração
-        periodo_params = []
-        for ano in anos:
-            for anexo in ["RGF-Anexo 01", "RGF-Anexo 02"]:
-                for poder in ["E"]:
-                    periodo_params.append({
-                        "an_exercicio": ano,
-                        "nr_periodo": quadrimestre,
-                        "no_anexo": anexo,
-                        "co_poder": poder
-                    })
-        
-        # Chama a função genérica
-        sucessos, falhas = _atualizar_dados_siconfi(RGF, 'rgf', params_base, periodo_params)
-
-        if falhas:
-            return {"message": "Importação RGF concluída com erros.", "sucessos": sucessos, "falhas": falhas, "status": "error"}
-
-        return {"message": "Dados RGF importados com sucesso!", "sucessos": sucessos, "status": "success"}
-
-    except Exception as e:
-        log.error("Erro geral na atualização RGF")
-        return {"message": f"Erro geral: {str(e)}", "sucessos": [], "falhas": [], "status": "error"}
+def atualizar_operacoes_rgf(status='all', progresso=None):
+    params = dict(in_periodicidade='Q', co_tipo_demonstrativo='RGF', co_esfera='E', id_ente=52)
+    return _resultado_atualizacao('RGF', *_atualizar_dados_siconfi(
+        RGF, 'rgf', params, _periodos_para_consulta('rgf', status), progresso))
 
 # ------------------------- Fim da Seção Siconfi -------------------------
 

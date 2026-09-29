@@ -7,6 +7,10 @@ from .data_access import (
 
 from .config import carregar_modelo_yaml
 from .logger import log
+from .data_access import obter_registros_dtp
+from .dtp import consolidar_dtp
+from .dcl import avaliar_dcl
+from .data_access import obter_registros_dcl
 
 # --- CAMADA 2: MOTOR DE REGRAS ---
 
@@ -223,6 +227,7 @@ def analisar_operacao(ano, valor_requisitado=0.0):
 
         regras_cumpridas = []
         regras_violadas = []
+        regras_sem_informacao = []
         
         # 2. Itera sobre as etapas e regras definidas no YAML
         for etapa_nome, regras_da_etapa in modelo_regras.items():
@@ -231,6 +236,23 @@ def analisar_operacao(ano, valor_requisitado=0.0):
                 # O YAML tem uma lista de dicionários com uma única chave (o nome da regra)
                 nome_regra_yaml = list(regra.keys())[0]
                 regra_info_yaml = regra[nome_regra_yaml]
+
+                if nome_regra_yaml == 'Divida_Consolidada':
+                    resultado_dcl = avaliar_dcl(ano, obter_registros_dcl(ano))
+                    if resultado_dcl is not None:
+                        destino = (regras_sem_informacao if resultado_dcl['aprovado'] is None else
+                                   regras_cumpridas if resultado_dcl['aprovado'] else regras_violadas)
+                        destino.append(resultado_dcl)
+                    continue
+
+                if nome_regra_yaml == 'Despesa_com_Pessoal':
+                    resultado_dtp = consolidar_dtp(ano, obter_registros_dtp(ano))
+                    if resultado_dtp is not None:
+                        if resultado_dtp['aprovado']:
+                            regras_cumpridas.append(resultado_dtp)
+                        else:
+                            regras_violadas.append(resultado_dtp)
+                    continue
 
                 # 3. Encontra a classe correspondente no nosso Registro
                 ClasseDaRegra = REGISTRY.get(nome_regra_yaml)
@@ -260,6 +282,8 @@ def analisar_operacao(ano, valor_requisitado=0.0):
             "status": "Análise completa.",
             "regras_cumpridas": regras_cumpridas,
             "regras_violadas": regras_violadas,
+            "regras_sem_informacao": regras_sem_informacao,
+            "circuit_breaker": any(r.get('tipo') in ('dtp', 'dcl') for r in regras_violadas),
             # outros dados globais se o frontend precisar
         }
     except Exception as e:
