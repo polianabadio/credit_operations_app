@@ -3,8 +3,46 @@ from decimal import Decimal
 
 PODERES = {'E': 'Executivo', 'L': 'Legislativo', 'J': 'Judiciário',
            'M': 'Ministério Público', 'D': 'Defensoria Pública'}
-SUCESSO = 'SUCESSO: Operação Aprovada / Concatenação Concluída'
-FALHA = 'FALHA: Operação de Crédito Negada (Circuit Breaker)'
+SUCESSO = 'Limite global atendido'
+FALHA = 'Limite máximo de DTP excedido'
+
+# Goiás possui Tribunal de Contas dos Municípios: LRF, art. 20, II e § 4º.
+# A Defensoria integra o limite do Executivo e não recebe teto separado aqui.
+LIMITES_MAXIMOS = {
+    'Estado consolidado': Decimal('60'),
+    'Executivo': Decimal('48.60'),
+    'Legislativo': Decimal('3.40'),
+    'Judiciário': Decimal('6'),
+    'Ministério Público': Decimal('2'),
+}
+
+
+def classificar_percentual_dtp(percentual, poder):
+    """Faixas informativas da LRF; não altera a aprovação global da DTP."""
+    limite = LIMITES_MAXIMOS.get(poder)
+    if limite is None:
+        return {'faixa': 'sem_limite_individual', 'situacao': 'Limite individual não definido',
+                'limite_alerta': None, 'limite_prudencial': None,
+                'limite_maximo': None, 'percentual_limite_consumido': None,
+                'margem_pontos_percentuais': None}
+    atual = Decimal(str(percentual))
+    alerta = limite * Decimal('0.90')
+    prudencial = limite * Decimal('0.95')
+    if atual > limite:
+        faixa, situacao = 'maximo', 'Limite máximo excedido'
+    elif atual > prudencial:
+        faixa, situacao = 'prudencial', 'Limite prudencial excedido'
+    elif atual > alerta:
+        faixa, situacao = 'alerta', 'Faixa de alerta'
+    else:
+        faixa, situacao = 'dentro_limite', 'Dentro do limite'
+    return {
+        'faixa': faixa, 'situacao': situacao,
+        'limite_alerta': float(alerta), 'limite_prudencial': float(prudencial),
+        'limite_maximo': float(limite),
+        'percentual_limite_consumido': float(atual / limite * 100),
+        'margem_pontos_percentuais': float(limite - atual),
+    }
 
 
 def _elegiveis(ano, registros):
@@ -54,14 +92,21 @@ def consolidar_dtp(ano, registros):
                if r['aprovado'] is not None]
     total = sum((Decimal(str(r['dados_calculados']['percentual'])) for r in poderes), Decimal('0'))
     aprovado = total <= Decimal('60')
+    poderes_apresentacao = []
+    for resultado in poderes:
+        dados = resultado['dados_calculados']
+        poderes_apresentacao.append({
+            **{k: dados[k] for k in ('poder', 'ano', 'quadrimestre', 'percentual')},
+            **classificar_percentual_dtp(dados['percentual'], dados['poder']),
+        })
     return {
-        'tipo': 'dtp', 'nome': 'Despesa Total com Pessoal - DTP',
+        'tipo': 'dtp', 'nome': 'Despesa Total com Pessoal — DTP',
         'status': 'Cumprida' if aprovado else 'Violada', 'aprovado': aprovado,
         'descricao': SUCESSO if aprovado else FALHA,
         'dados_calculados': {
             'ano': ano, 'quadrimestre': periodo, 'percentual': float(total),
             'limite_percentual': 60,
-            'poderes': [{k: r['dados_calculados'][k] for k in
-                        ('poder', 'ano', 'quadrimestre', 'percentual')} for r in poderes]
+            **classificar_percentual_dtp(total, 'Estado consolidado'),
+            'poderes': poderes_apresentacao,
         }
     }

@@ -17,6 +17,7 @@ def ambiente(monkeypatch):
         monkeypatch.setattr(updater.db, 'session', session)
         monkeypatch.setattr(updater, 'log', Mock())
         monkeypatch.setattr(updater, '_aguardar_limite_api', lambda: None)
+        monkeypatch.setattr(updater, 'sleep', lambda segundos: None)
         yield engine, session
     engine.dispose()
 
@@ -83,6 +84,41 @@ def test_consulta_todos_periodos_e_inclui_ano_atual():
         assert {p['nr_periodo'] for p in periodos if p['an_exercicio'] == ano} == set(range(1, quantidade + 1))
 
 
+def test_atualizacao_normal_do_rreo_inclui_anexo_03(monkeypatch):
+    recebidos = []
+    monkeypatch.setattr(updater, '_atualizar_dados_siconfi',
+                        lambda modelo, endpoint, params, periodos, progresso:
+                        (recebidos.extend(periodos) or [], [], []))
+    updater.atualizar_operacoes_rreo('now')
+    assert any(p['no_anexo'] == 'RREO-Anexo 03' for p in recebidos)
+    ultimo_bimestre_concluido = (updater.datetime.now().month - 1) // 2
+    assert {p['nr_periodo'] for p in recebidos if p['no_anexo'] == 'RREO-Anexo 03'} == set(
+        range(1, ultimo_bimestre_concluido + 1))
+
+
+def test_atualizacao_automatica_nao_consulta_periodos_futuros():
+    for endpoint, meses_por_periodo in (('rreo', 2), ('rgf', 4)):
+        atual = updater._periodos_para_consulta(endpoint, 'now')
+        assert {p['nr_periodo'] for p in atual} == set(
+            range(1, (updater.datetime.now().month - 1) // meses_por_periodo + 1))
+        anterior = updater._periodos_para_consulta(endpoint, 'past')
+        assert all(p['an_exercicio'] < updater.datetime.now().year for p in anterior)
+
+
+def test_cache_com_linhas_ausentes_refaz_consulta(ambiente, requests_mock):
+    from datetime import datetime
+    import json
+    from src.simulador.database_models import SincronizacaoSiconfi
+    session = ambiente[1]
+    chave = json.dumps(['rreo', {**PARAMS, **PERIODO}], sort_keys=True)
+    session.add(SincronizacaoSiconfi(chave=chave, consultado_em=datetime.now(), quantidade=1))
+    session.commit()
+    requests_mock.get(URL, json={'items': [registro()], 'hasMore': False})
+    assert not executar()[1]
+    assert requests_mock.call_count == 1
+    assert session.query(RREO).count() == 1
+
+
 def test_analise_nao_mistura_periodos(ambiente):
     from src.simulador.data_access import obter_dados_rreo_para_analise
     session = ambiente[1]
@@ -117,7 +153,47 @@ def test_cache_expirado_busca_novamente(ambiente, requests_mock):
 
 
 def test_falha_nao_impede_nova_tentativa(ambiente, requests_mock):
-    requests_mock.get(URL, [{'status_code': 500}, {'json': {'items': [registro()], 'hasMore': False}}])
+    requests_mock.get(URL, [{'status_code': 500}, {'status_code': 500},
+                           {'status_code': 500},
+                           {'json': {'items': [registro()], 'hasMore': False}}])
     assert executar()[1]
     assert not executar()[1]
+    assert requests_mock.call_count == 4
+
+
+def test_falha_temporaria_e_recuperada_na_mesma_atualizacao(ambiente, requests_mock):
+    requests_mock.get(URL, [{'status_code': 503},
+                           {'json': {'items': [registro()], 'hasMore': False}}])
+    assert not executar()[1]
     assert requests_mock.call_count == 2
+
+
+def test_reservas_da_api_mantem_intervalo_sem_bloquear_outras_threads(monkeypatch):
+    from threading import Event, Thread
+
+    primeira_dormindo = Event()
+    liberar_primeira = Event()
+    chamadas = []
+    monkeypatch.setattr(updater, '_ultima_requisicao', 0.0)
+    monkeypatch.setattr(updater, 'monotonic', lambda: 10.0)
+
+    def dormir(segundos):
+        chamadas.append(segundos)
+        if len(chamadas) == 1:
+            primeira_dormindo.set()
+            assert liberar_primeira.wait(2)
+
+    monkeypatch.setattr(updater, 'sleep', dormir)
+    primeira = Thread(target=updater._aguardar_limite_api)
+    segunda = Thread(target=updater._aguardar_limite_api)
+    try:
+        primeira.start()
+        assert primeira_dormindo.wait(2)
+        segunda.start()
+        segunda.join(2)
+        assert not segunda.is_alive()
+        assert chamadas == [0, 1]
+    finally:
+        liberar_primeira.set()
+        primeira.join(2)
+        segunda.join(2)

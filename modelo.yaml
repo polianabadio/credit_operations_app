@@ -35,13 +35,13 @@ Primeira_Etapa:
       base_normativa: Art 7º, Inciso I, da RSF 43/2001, Pag 80 e 81 do MIP
       objetivo: O limite do MGA visa a reduzir a receita total de operações de crédito por meio de endividamento em um ano.
 
-  - Regra_do_Dispendio_115_RCL_Estimada:
+  - Regra_do_Servico_da_Divida_115_RCL_Estimada:
       validacao:
         true:
-          descricao: (Amortizações + Juros + Encargos) ≤ 11,5% da RCL Estimada
+          descricao: Média anual do serviço da dívida < 11,5% da RCL projetada
           proximo_passo: Prosseguir para a Dívida Consolidada
         false:
-          descricao: (Amortizações + Juros + Encargos) > 11,5% da RCL Estimada
+          descricao: Média anual do serviço da dívida ≥ 11,5% da RCL projetada
           proximo_passo: Operação de Crédito Negada
       banco_de_dados: [SICONFI]
       base_normativa: Art 7º, Inciso II, da RSF 43/2001, Pag 82 e 83 do MIP

@@ -11,6 +11,12 @@ from .data_access import obter_registros_dtp
 from .dtp import consolidar_dtp
 from .dcl import avaliar_dcl
 from .data_access import obter_registros_dcl
+from .data_access import obter_rcl_ajustada_endividamento
+from .data_access import (obter_servico_divida_exercicio_anterior,
+                          CONTAS_SERVICO_DIVIDA, COLUNA_LIQUIDADA, COLUNA_RESTOS)
+from .servico_divida import (avaliar_exercicio_anterior, projetar_anos,
+                             avaliar_alternativas, decimal_nao_negativo)
+from .parametros_simulacao import obter_fator_projecao
 
 # --- CAMADA 2: MOTOR DE REGRAS ---
 
@@ -44,7 +50,8 @@ class RegraDeOuroAnoAnterior(RegraDeNegocio):
         
         if not dados_ano_anterior:
             # Se não há dados, não podemos avaliar. Pode ser uma aprovação padrão ou erro.
-            return {'aprovado': True, 'dados_calculados': {'mensagem': 'Sem dados para o ano anterior.'}}
+            return {'aprovado': True, 'dados_calculados': {
+                'ano_analisado': ano_anterior, 'mensagem': 'Sem dados para o ano anterior.'}}
 
         # Define os filtros com base na lógica original
         colunas_despesa = ['DESPESAS LIQUIDADAS ATÉ O BIMESTRE (h)', 'INSCRITAS EM RESTOS A PAGAR NÃO PROCESSADOS (k)']
@@ -64,11 +71,17 @@ class RegraDeOuroAnoAnterior(RegraDeNegocio):
         # A lógica da regra
         limite_disponivel = despesas_capital_total - operacoes_credito_total
         aprovado = limite_disponivel >= 0
+        fontes = sorted({(reg.get('anexo'), reg.get('periodo')) for reg in dados_ano_anterior
+                         if (reg['conta'] in contas_despesa_capital and reg['coluna'] in colunas_despesa)
+                         or (reg['conta'] in contas_operacao_credito and reg['coluna'] in colunas_operacao)
+                         if reg.get('anexo') and reg.get('periodo')})
         
         # Retorna o resultado padronizado
         return {
             'aprovado': aprovado,
             'dados_calculados': {
+                'ano_analisado': ano_anterior,
+                'fontes': [{'anexo': anexo, 'periodo': periodo} for anexo, periodo in fontes],
                 'limite_disponivel': limite_disponivel,
                 'despesas_capital': {
                     'total': despesas_capital_total,
@@ -90,7 +103,8 @@ class RegraDeOuroAnoAtual(RegraDeNegocio):
         dados_ano_corrente = self.dados_rreo.get(self.ano, {}).get('registros', [])
         
         if not dados_ano_corrente:
-            return {'aprovado': True, 'dados_calculados': {'mensagem': 'Sem dados para o ano corrente.'}}
+            return {'aprovado': True, 'dados_calculados': {
+                'ano_analisado': self.ano, 'mensagem': 'Sem dados para o ano corrente.'}}
 
         # Filtros para Despesas de Capital (idênticos à regra anterior)
         colunas_despesa = ['DESPESAS LIQUIDADAS ATÉ O BIMESTRE (h)', 'INSCRITAS EM RESTOS A PAGAR NÃO PROCESSADOS (k)']
@@ -111,12 +125,20 @@ class RegraDeOuroAnoAtual(RegraDeNegocio):
         # Lógica da regra
         limite_disponivel = despesas_capital_total - operacoes_credito_total
         aprovado = limite_disponivel >= self.valor_requisitado
+        fontes = sorted({(reg.get('anexo'), reg.get('periodo')) for reg in dados_ano_corrente
+                         if (reg['conta'] in contas_despesa_capital and reg['coluna'] in colunas_despesa)
+                         or (reg['conta'] in contas_operacao_credito and reg['coluna'] in colunas_operacao)
+                         if reg.get('anexo') and reg.get('periodo')})
         
         # Retorno padronizado
         return {
             'aprovado': aprovado,
             'dados_calculados': {
+                'ano_analisado': self.ano,
+                'fontes': [{'anexo': anexo, 'periodo': periodo} for anexo, periodo in fontes],
                 'limite_disponivel': limite_disponivel,
+                'margem_apos_operacao': limite_disponivel - self.valor_requisitado,
+                'receitas_totais_consideradas': operacoes_credito_total + self.valor_requisitado,
                 'valor_requisitado_na_analise': self.valor_requisitado,
                 'despesas_capital': {
                     'total': despesas_capital_total,
@@ -183,7 +205,7 @@ def _formatar_resultado_regra(nome_regra, regra_info, resultado_avaliacao):
     aprovado = resultado_avaliacao.get('aprovado', False)
     info_validacao = regra_info.get("validacao", {}).get(aprovado, {})
     
-    return {
+    resultado = {
         "nome": nome_regra.replace("_", " "), # Deixa o nome mais amigável
         "status": "Cumprida" if aprovado else "Violada",
         "descricao": info_validacao.get("descricao", "Descrição não encontrada."),
@@ -192,6 +214,13 @@ def _formatar_resultado_regra(nome_regra, regra_info, resultado_avaliacao):
         "objetivo": regra_info.get("objetivo", ""),
         "dados_calculados": resultado_avaliacao.get('dados_calculados', {})
     }
+    if nome_regra == 'Regra_de_Ouro_Ano_Anterior':
+        resultado['tipo'] = 'regra_ouro_anterior'
+        resultado['nome'] = 'Regra de Ouro — Exercício Anterior'
+    elif nome_regra == 'Regra_de_Ouro_Ano_Atual':
+        resultado['tipo'] = 'regra_ouro_atual'
+        resultado['nome'] = 'Regra de Ouro — Exercício Atual'
+    return resultado
 
 
 # --- REGISTRO DE REGRAS ---
@@ -201,8 +230,130 @@ REGISTRY = {
     "Regra_de_Ouro_Ano_Atual": RegraDeOuroAnoAtual,
 }
 
+# Ordem visual independente da etapa de cálculo e do status de cada regra.
+ORDEM_EXIBICAO = {
+    'regra_ouro_anterior': 0,
+    'regra_ouro_atual': 1,
+    'dtp': 2,
+    'servico_divida': 3,
+    'dcl': 4,
+}
+
 # --- CAMADA 3: ORQUESTRAÇÃO E INTERFACE PÚBLICA ---
-def analisar_operacao(ano, valor_requisitado=0.0):
+def _resultado_servico_divida(ano, entrada=None):
+    """Compõe a memória da regra sem aprovar quando faltarem lançamentos."""
+    rcl_historica = obter_rcl_ajustada_endividamento(ano - 1)
+    despesas = obter_servico_divida_exercicio_anterior(ano - 1)
+    rcl_atual = obter_rcl_ajustada_endividamento(ano)
+    despesas_referencia = obter_servico_divida_exercicio_anterior(ano)
+    if entrada is not None and not isinstance(entrada, dict):
+        raise ValueError('Dados da regra inválidos')
+    dados = {
+        'ano_historico': ano - 1, 'periodo_historico': despesas['periodo'] if despesas else None,
+        'rcl_historica': float(rcl_historica['valor']) if rcl_historica else None,
+        'periodo_rcl_historica': rcl_historica['periodo'] if rcl_historica else None,
+        'rcl_atual': float(rcl_atual['valor']) if rcl_atual else None,
+        'periodo_rcl_atual': rcl_atual['periodo'] if rcl_atual else None,
+        'ano_atual': ano,
+    }
+    if despesas_referencia:
+        referencia_juros = despesas_referencia['contas'][CONTAS_SERVICO_DIVIDA[0]]
+        referencia_amortizacao = despesas_referencia['contas'][CONTAS_SERVICO_DIVIDA[1]]
+        dados['referencia_rreo_atual'] = {
+            'ano': ano, 'periodo': despesas_referencia['periodo'],
+            'juros_encargos': str(referencia_juros[COLUNA_LIQUIDADA] +
+                                  (referencia_juros[COLUNA_RESTOS] or 0)),
+            'amortizacao': str(referencia_amortizacao[COLUNA_LIQUIDADA] +
+                                (referencia_amortizacao[COLUNA_RESTOS] or 0)),
+            'origem': 'SICONFI/RREO-Anexo 01',
+        }
+    base = {'tipo': 'servico_divida', 'nome': 'Projeção do Serviço da Dívida',
+            'dados_calculados': dados}
+    def pendente(motivo):
+        return {**base, 'aprovado': None, 'status': 'Sem informação', 'descricao': motivo}
+    if not rcl_historica or not despesas:
+        return pendente('Faltam dados do último RREO do exercício anterior para avaliar o serviço da dívida.')
+    if rcl_historica['periodo'] != despesas['periodo']:
+        return pendente('RCL e despesas do exercício anterior pertencem a bimestres diferentes.')
+    juros = despesas['contas'][CONTAS_SERVICO_DIVIDA[0]]
+    amortizacao = despesas['contas'][CONTAS_SERVICO_DIVIDA[1]]
+    historico = avaliar_exercicio_anterior(
+        rcl_historica['valor'], juros[COLUNA_LIQUIDADA], amortizacao[COLUNA_LIQUIDADA],
+        juros[COLUNA_RESTOS], amortizacao[COLUNA_RESTOS])
+    dados['historico'] = {chave: float(valor) for chave, valor in historico.items()
+                          if chave != 'aprovado'}
+    dados['historico']['aprovado'] = historico['aprovado']
+    dados['memoria_exata'] = {
+        'rcl_historica': str(rcl_historica['valor']),
+        'juros_liquidados': str(juros[COLUNA_LIQUIDADA]),
+        'amortizacao_liquidada': str(amortizacao[COLUNA_LIQUIDADA]),
+        'restos_juros': str(juros[COLUNA_RESTOS] or 0),
+        'restos_amortizacao': str(amortizacao[COLUNA_RESTOS] or 0),
+        'servico_historico': str(historico['servico_divida']),
+        'limite_historico': str(historico['limite']),
+        'comparacao_historica': '<',
+    }
+    if not historico['aprovado']:
+        return {**base, 'aprovado': False, 'status': 'Violada',
+                'descricao': 'Serviço da Dívida do ano anterior é superior ou igual a 11,5% da RCL do exercício.'}
+    if not rcl_atual:
+        return pendente('Exercício anterior aprovado; falta a RCL atual para projetar os exercícios futuros.')
+    fator = decimal_nao_negativo((entrada or {}).get('fator', obter_fator_projecao()),
+                                 'fator de projeção')
+    if fator == 0:
+        raise ValueError('Fator de projeção deve ser positivo')
+    dados['fator'] = str(fator)
+    if not entrada or not entrada.get('hipotese_1'):
+        return pendente('Exercício anterior aprovado. Preencha o fluxo da operação pretendida.')
+    fim = entrada.get('ano_fim_contrato')
+    if not isinstance(fim, int) or isinstance(fim, bool) or not ano <= fim <= ano + 50:
+        raise ValueError('Ano de fim do contrato inválido')
+    anos_esperados = set(range(ano, fim + 1))
+    linhas_1 = entrada['hipotese_1']
+    if not isinstance(linhas_1, list) or {r.get('ano') for r in linhas_1} != anos_esperados or len(linhas_1) != len(anos_esperados):
+        raise ValueError('A Hipótese 1 deve conter todos os anos do contrato, sem repetição')
+    primeira = projetar_anos(rcl_atual['valor'], linhas_1, ano_base=ano - 1, fator=fator)
+    futuro = avaliar_alternativas(primeira)
+    def memoria_hipotese(resultado):
+        if resultado is None:
+            return None
+        return {'aprovado': resultado['aprovado'],
+                'media_percentual': float(resultado['media_percentual'] * 100),
+                'linhas': [{chave: float(valor) if chave != 'ano' else valor
+                            for chave, valor in linha.items()} for linha in resultado['linhas']]}
+    if futuro['aprovado'] is None and ano > 2027:
+        dados['hipotese_1'] = memoria_hipotese(futuro['hipotese_1'])
+        return {**base, 'aprovado': False, 'status': 'Violada',
+                'descricao': 'Hipótese 1 reprovada; o período alternativo até 2027 não se aplica.'}
+    segunda = None
+    if futuro['aprovado'] is None and entrada.get('hipotese_2'):
+        linhas_2 = entrada['hipotese_2']
+        if not isinstance(linhas_2, list) or any(not isinstance(r.get('ano'), int) or
+                not ano <= r['ano'] <= 2027 for r in linhas_2):
+            raise ValueError('A Hipótese 2 aceita somente exercícios até 2027')
+        if any(r.get('juros_encargos') is None or r.get('amortizacao') is None for r in linhas_2):
+            dados['hipotese_1'] = memoria_hipotese(futuro['hipotese_1'])
+            return pendente('Hipótese 1 reprovada. Complete os lançamentos da Hipótese 2.')
+        segunda = projetar_anos(rcl_atual['valor'], linhas_2, ano_base=ano - 1, fator=fator)
+        futuro = avaliar_alternativas(primeira, segunda)
+    dados['hipotese_1'] = memoria_hipotese(futuro['hipotese_1'])
+    dados['hipotese_2'] = memoria_hipotese(futuro['hipotese_2'])
+    for indice, memoria in ((1, futuro['hipotese_1']), (2, futuro['hipotese_2'])):
+        if memoria:
+            dados['memoria_exata'][f'hipotese_{indice}'] = {
+                'media': str(memoria['media_percentual']),
+                'linhas': [{chave: str(valor) for chave, valor in linha.items()}
+                           for linha in memoria['linhas']],
+            }
+    if futuro['aprovado'] is None:
+        return pendente('Hipótese 1 reprovada. Preencha a Hipótese 2 até dezembro de 2027.')
+    return {**base, 'aprovado': futuro['aprovado'],
+            'status': 'Cumprida' if futuro['aprovado'] else 'Violada',
+            'descricao': ('Uma das hipóteses ficou abaixo de 11,5%; prosseguir para Dívida Consolidada.'
+                          if futuro['aprovado'] else 'As duas hipóteses atingiram ou ultrapassaram 11,5%.')}
+
+
+def analisar_operacao(ano, valor_requisitado=0.0, servico_input=None):
     """
     Orquestra a análise de uma operação de crédito.
     (Versão Refatorada)
@@ -228,6 +379,13 @@ def analisar_operacao(ano, valor_requisitado=0.0):
         regras_cumpridas = []
         regras_violadas = []
         regras_sem_informacao = []
+        regras_ordenadas = []
+        servico_divida_aprovado = None
+        servico_divida_avaliado = False
+
+        def adicionar_resultado(resultado, destino):
+            destino.append(resultado)
+            regras_ordenadas.append(resultado)
         
         # 2. Itera sobre as etapas e regras definidas no YAML
         for etapa_nome, regras_da_etapa in modelo_regras.items():
@@ -237,21 +395,49 @@ def analisar_operacao(ano, valor_requisitado=0.0):
                 nome_regra_yaml = list(regra.keys())[0]
                 regra_info_yaml = regra[nome_regra_yaml]
 
+                if nome_regra_yaml in ('Regra_do_Dispendio_115_RCL_Estimada',
+                                       'Regra_do_Servico_da_Divida_115_RCL_Estimada'):
+                    try:
+                        resultado_servico = _resultado_servico_divida(ano, servico_input)
+                    except ValueError as exc:
+                        try:
+                            resultado_servico = _resultado_servico_divida(ano)
+                        except ValueError:
+                            resultado_servico = {
+                                'tipo': 'servico_divida',
+                                'nome': 'Projeção do Serviço da Dívida',
+                                'dados_calculados': {'ano_historico': ano - 1, 'ano_atual': ano},
+                            }
+                        resultado_servico.update(status='Sem informação', aprovado=None,
+                                                 descricao=f'Dados inválidos ou ambíguos: {exc}')
+                    resultado_servico['base_normativa'] = regra_info_yaml.get('base_normativa', '')
+                    destino = (regras_sem_informacao if resultado_servico['aprovado'] is None else
+                               regras_cumpridas if resultado_servico['aprovado'] else regras_violadas)
+                    adicionar_resultado(resultado_servico, destino)
+                    servico_divida_aprovado = resultado_servico['aprovado']
+                    servico_divida_avaliado = True
+                    log.info('Regra do Serviço da Dívida avaliada.',
+                             modulo='rule_engine.py', funcao='analisar_operacao',
+                             ano=ano, status=resultado_servico['status'])
+                    continue
+
                 if nome_regra_yaml == 'Divida_Consolidada':
+                    if servico_divida_avaliado and servico_divida_aprovado is not True:
+                        continue
                     resultado_dcl = avaliar_dcl(ano, obter_registros_dcl(ano))
                     if resultado_dcl is not None:
                         destino = (regras_sem_informacao if resultado_dcl['aprovado'] is None else
                                    regras_cumpridas if resultado_dcl['aprovado'] else regras_violadas)
-                        destino.append(resultado_dcl)
+                        adicionar_resultado(resultado_dcl, destino)
                     continue
 
                 if nome_regra_yaml == 'Despesa_com_Pessoal':
                     resultado_dtp = consolidar_dtp(ano, obter_registros_dtp(ano))
                     if resultado_dtp is not None:
                         if resultado_dtp['aprovado']:
-                            regras_cumpridas.append(resultado_dtp)
+                            adicionar_resultado(resultado_dtp, regras_cumpridas)
                         else:
-                            regras_violadas.append(resultado_dtp)
+                            adicionar_resultado(resultado_dtp, regras_violadas)
                     continue
 
                 # 3. Encontra a classe correspondente no nosso Registro
@@ -269,21 +455,23 @@ def analisar_operacao(ano, valor_requisitado=0.0):
                     
                     # 5. Adiciona o resultado à lista correta
                     if resultado_avaliacao['aprovado']:
-                        regras_cumpridas.append(resultado_formatado)
+                        adicionar_resultado(resultado_formatado, regras_cumpridas)
                         print(f"  [OK] Regra '{nome_regra_yaml}' cumprida.")
                     else:
-                        regras_violadas.append(resultado_formatado)
+                        adicionar_resultado(resultado_formatado, regras_violadas)
                         print(f"  [FALHA] Regra '{nome_regra_yaml}' violada.")
 
                 else:
                     print(f"  [AVISO] A classe para a regra '{nome_regra_yaml}' não foi implementada ou registrada.")
 
+        regras_ordenadas.sort(key=lambda regra: ORDEM_EXIBICAO.get(regra.get('tipo'), len(ORDEM_EXIBICAO)))
         return {
             "status": "Análise completa.",
             "regras_cumpridas": regras_cumpridas,
             "regras_violadas": regras_violadas,
             "regras_sem_informacao": regras_sem_informacao,
-            "circuit_breaker": any(r.get('tipo') in ('dtp', 'dcl') for r in regras_violadas),
+            "regras_ordenadas": regras_ordenadas,
+            "circuit_breaker": any(r.get('tipo') in ('dtp', 'dcl', 'servico_divida') for r in regras_violadas),
             # outros dados globais se o frontend precisar
         }
     except Exception as e:

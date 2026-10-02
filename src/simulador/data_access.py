@@ -6,7 +6,76 @@ em estruturas Python nativas (dicionários e listas) para serem consumidos
 pelo motor de regras.
 """
 from sqlalchemy import func, and_
+import unicodedata
 from .database_models import db, RREO, RGF
+
+
+CONTA_RCL_ENDIVIDAMENTO = (
+    'RECEITA CORRENTE LÍQUIDA AJUSTADA PARA CÁLCULO DOS LIMITES DE '
+    'ENDIVIDAMENTO (V) = (III - IV)'
+)
+COLUNA_RCL_12_MESES = 'TOTAL (ÚLTIMOS 12 MESES)'
+CONTAS_SERVICO_DIVIDA = ('JUROS E ENCARGOS DA DÍVIDA', 'AMORTIZAÇÃO DA DÍVIDA')
+COLUNA_LIQUIDADA = 'DESPESAS LIQUIDADAS ATÉ O BIMESTRE (h)'
+COLUNA_RESTOS = 'INSCRITAS EM RESTOS A PAGAR NÃO PROCESSADOS (k)'
+
+
+def _normalizar_rotulo(texto):
+    sem_acentos = ''.join(c for c in unicodedata.normalize('NFKD', texto or '')
+                           if not unicodedata.combining(c))
+    return ' '.join(sem_acentos.upper().split())
+
+
+def obter_rcl_ajustada_endividamento(ano):
+    """Último total de 12 meses publicado por GO no RREO Anexo 03 do ano."""
+    candidatos = db.session.query(RREO).filter(
+        RREO.exercicio == ano, RREO.uf == 'GO', RREO.esfera == 'E',
+        RREO.anexo == 'RREO-Anexo 03', RREO.valor.isnot(None)
+    ).order_by(RREO.periodo.desc()).all()
+    conta = _normalizar_rotulo(CONTA_RCL_ENDIVIDAMENTO)
+    coluna = _normalizar_rotulo(COLUNA_RCL_12_MESES)
+    encontrados = [linha for linha in candidatos
+                   if _normalizar_rotulo(linha.conta) == conta
+                   and _normalizar_rotulo(linha.coluna) == coluna]
+    if not encontrados:
+        return None
+    ultimo_periodo = encontrados[0].periodo
+    ultimos = [linha for linha in encontrados if linha.periodo == ultimo_periodo]
+    if len(ultimos) != 1:
+        raise ValueError(f'RCL ajustada ambígua para GO em {ano}, período {ultimo_periodo}')
+    linha = ultimos[0]
+    return {
+        'valor': linha.valor, 'exercicio': linha.exercicio, 'periodo': linha.periodo,
+        'uf': linha.uf, 'anexo': linha.anexo, 'conta': linha.conta,
+        'coluna': linha.coluna, 'origem': 'SICONFI/RREO',
+    }
+
+
+def obter_servico_divida_exercicio_anterior(ano):
+    """Valores do último RREO Anexo 01 de GO; restos ausentes são opcionais."""
+    linhas = db.session.query(RREO).filter(
+        RREO.exercicio == ano, RREO.uf == 'GO', RREO.esfera == 'E',
+        RREO.anexo == 'RREO-Anexo 01'
+    ).all()
+    if not linhas:
+        return None
+    periodo = max(linha.periodo for linha in linhas)
+    contas = {}
+    for conta in CONTAS_SERVICO_DIVIDA:
+        componentes = {}
+        for coluna in (COLUNA_LIQUIDADA, COLUNA_RESTOS):
+            valores = [linha.valor for linha in linhas if linha.periodo == periodo
+                       and _normalizar_rotulo(linha.conta) == _normalizar_rotulo(conta)
+                       and _normalizar_rotulo(linha.coluna) == _normalizar_rotulo(coluna)
+                       and linha.valor is not None]
+            if len(valores) > 1:
+                raise ValueError(f'Dado duplicado: {conta}, {coluna}, {ano}/{periodo}')
+            if not valores and coluna == COLUNA_LIQUIDADA:
+                return None
+            componentes[coluna] = valores[0] if valores else None
+        contas[conta] = componentes
+    return {'exercicio': ano, 'periodo': periodo, 'anexo': 'RREO-Anexo 01',
+            'origem': 'SICONFI/RREO', 'contas': contas}
 
 
 def obter_registros_dcl(ano):
@@ -58,6 +127,7 @@ def obter_dados_rreo_para_analise(ano_corrente: int):
     query_result = db.session.query(
         RREO.exercicio,
         RREO.periodo,
+        RREO.anexo,
         RREO.coluna,
         RREO.conta,
         RREO.valor
@@ -80,6 +150,8 @@ def obter_dados_rreo_para_analise(ano_corrente: int):
 
     for r in query_result:
         registro_dict = {
+            'periodo': r.periodo,
+            'anexo': r.anexo,
             'coluna': r.coluna,
             'conta': r.conta,
             'valor': float(r.valor or 0.0)

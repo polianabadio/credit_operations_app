@@ -7,7 +7,7 @@ através de APIs externas (Siconfi), extraídas das rotas Flask originais.
 
 import requests
 import json
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from threading import Lock
 from time import monotonic, sleep
@@ -25,8 +25,11 @@ def _aguardar_limite_api():
     """A API do Tesouro permite uma requisição por segundo."""
     global _ultima_requisicao
     with _http_lock:
-        sleep(max(0, 1 - (monotonic() - _ultima_requisicao)))
-        _ultima_requisicao = monotonic()
+        agora = monotonic()
+        horario = max(agora, _ultima_requisicao + 1)
+        _ultima_requisicao = horario
+    # Reserva o horário sob o lock, mas não segura as outras threads enquanto espera.
+    sleep(max(0, horario - agora))
 
 
 # ----------- Seção de atualização de dados via API do Siconfi -----------
@@ -49,8 +52,20 @@ def _atualizar_dados_siconfi(modelo_db, endpoint, params_base, periodo_params, p
         for periodo in periodo_params:
             anterior = consultas.get(chave_consulta(periodo))
             validade = timedelta(hours=1) if anterior and anterior.quantidade == 0 else (
-                timedelta(days=7) if periodo['an_exercicio'] < agora.year else timedelta(hours=24))
-            if anterior and timedelta(0) <= agora - anterior.consultado_em < validade:
+                timedelta(days=7) if periodo['an_exercicio'] < agora.year else timedelta(hours=1))
+            # Uma consulta marcada como concluída não basta se suas linhas não
+            # estiverem no banco (por exemplo, após restaurar um backup).
+            dados_presentes = True
+            if anterior and anterior.quantidade > 0:
+                consulta_dados = session.query(modelo_db.id).filter(
+                    modelo_db.exercicio == periodo['an_exercicio'],
+                    modelo_db.periodo == periodo['nr_periodo'],
+                    modelo_db.anexo == periodo['no_anexo']
+                )
+                if endpoint == 'rgf':
+                    consulta_dados = consulta_dados.filter(modelo_db.co_poder == periodo['co_poder'])
+                dados_presentes = consulta_dados.first() is not None
+            if anterior and dados_presentes and timedelta(0) <= agora - anterior.consultado_em < validade:
                 sucessos.append(periodo)
             else:
                 pendentes.append(periodo)
@@ -73,9 +88,18 @@ def _atualizar_dados_siconfi(modelo_db, endpoint, params_base, periodo_params, p
             with requests.Session() as http:
                 items, offset = [], 0
                 while True:
-                    _aguardar_limite_api()
-                    response = http.get(base_url, params={**params_base, **periodo, 'offset': offset}, timeout=(10, 30))
-                    response.raise_for_status()
+                    for tentativa in range(3):
+                        try:
+                            _aguardar_limite_api()
+                            response = http.get(base_url, params={**params_base, **periodo, 'offset': offset}, timeout=(10, 30))
+                            response.raise_for_status()
+                            break
+                        except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
+                            codigo = getattr(getattr(exc, 'response', None), 'status_code', None)
+                            temporario = not isinstance(exc, requests.HTTPError) or codigo in (429, 500, 502, 503, 504)
+                            if not temporario or tentativa == 2:
+                                raise
+                            sleep(1 + tentativa)
                     data = response.json()
                     if not isinstance(data, dict) or not isinstance(data.get('items'), list):
                         raise ValueError('Resposta inválida: a API não retornou uma lista items.')
@@ -89,8 +113,11 @@ def _atualizar_dados_siconfi(modelo_db, endpoint, params_base, periodo_params, p
         except Exception as exc:
             return exc
 
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        for periodo, resposta in zip(pendentes, pool.map(buscar, pendentes)):
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        tarefas = {pool.submit(buscar, periodo): periodo for periodo in pendentes}
+        for tarefa in as_completed(tarefas):
+            periodo = tarefas[tarefa]
+            resposta = tarefa.result()
             log.info('Consultando API Siconfi.', endpoint=endpoint, **periodo)
             try:
                 if isinstance(resposta, Exception):
@@ -148,16 +175,21 @@ def _resultado_atualizacao(nome, sucessos, falhas, avisos):
 
 
 def _periodos_para_consulta(endpoint, status='all'):
-    ano_atual = datetime.now().year
+    agora = datetime.now()
+    ano_atual = agora.year
     # Mantém a cobertura histórica do projeto, incluindo todos os períodos.
-    anos = [ano_atual] if status == 'now' else range(2021, ano_atual + 1)
+    anos = ([ano_atual] if status == 'now' else
+            range(2021, ano_atual) if status == 'past' else
+            range(2021, ano_atual + 1))
     quantidade = 6 if endpoint == 'rreo' else 3
+    meses_por_periodo = 2 if endpoint == 'rreo' else 4
     return [dict(an_exercicio=ano, nr_periodo=periodo,
                  no_anexo=f'{endpoint.upper()}-Anexo {anexo:02}',
                  **({'co_poder': poder} if endpoint == 'rgf' else {}))
             for ano in reversed(list(anos))
-            for periodo in range(1, quantidade + 1)
-            for anexo in (1, 2)
+            for periodo in range(1, ((agora.month - 1) // meses_por_periodo
+                                      if status == 'now' else quantidade) + 1)
+            for anexo in ((1, 2, 3) if endpoint == 'rreo' else (1, 2, 3, 4, 6))
             for poder in (('E', 'L', 'J', 'M', 'D') if endpoint == 'rgf' and anexo == 1 else ('E',))]
 
 

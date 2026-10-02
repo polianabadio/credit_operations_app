@@ -18,6 +18,21 @@ class SincronizacaoSiconfi(Base):
     consultado_em = Column(DateTime, nullable=False)
     quantidade = Column(Integer, nullable=False)
 
+
+class ParametroSimulacao(Base):
+    __tablename__ = 'parametro_simulacao'
+    chave = Column(String(100), primary_key=True)
+    valor = Column(String(100), nullable=False)
+
+
+class CapagPublicada(Base):
+    __tablename__ = 'capag_publicada'
+    uf = Column(String(2), primary_key=True)
+    nota = Column(String(10), nullable=False)
+    ano_publicacao = Column(Integer, nullable=False)
+    fonte = Column(String(1000), nullable=False)
+    consultado_em = Column(DateTime, nullable=False)
+
 class RREO(Base):
     __tablename__ = 'rreo'
 

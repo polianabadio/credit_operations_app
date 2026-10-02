@@ -1,6 +1,6 @@
 from decimal import Decimal
 import pytest
-from src.simulador.dtp import consolidar_dtp, SUCESSO, FALHA
+from src.simulador.dtp import consolidar_dtp, classificar_percentual_dtp, SUCESSO, FALHA
 
 
 def item(valor, **extras):
@@ -96,3 +96,39 @@ def test_escolhe_mais_recente_com_seis_instituicoes():
 def test_cinco_instituicoes_ou_sexta_sem_valor_nao_completam():
     linhas = [item(10, instituicao=str(i)) for i in range(5)]
     assert consolidar_dtp(2026, linhas + [item(None, instituicao='sexta')]) is None
+
+
+@pytest.mark.parametrize('valor,faixa', [
+    ('54', 'dentro_limite'), ('54.01', 'alerta'),
+    ('57', 'alerta'), ('57.01', 'prudencial'),
+    ('60', 'prudencial'), ('60.01', 'maximo'),
+])
+def test_faixas_globais_nos_marcos(valor, faixa):
+    assert classificar_percentual_dtp(Decimal(valor), 'Estado consolidado')['faixa'] == faixa
+
+
+def test_limites_individuais_de_goias():
+    executivo = classificar_percentual_dtp(43.74, 'Executivo')
+    legislativo = classificar_percentual_dtp(3.23, 'Legislativo')
+    assert executivo['limite_maximo'] == 48.6
+    assert executivo['limite_alerta'] == 43.74
+    assert executivo['faixa'] == 'dentro_limite'
+    assert legislativo['limite_maximo'] == 3.4
+    assert legislativo['faixa'] == 'alerta'
+
+
+def test_alerta_individual_nao_reprova_total_global():
+    linhas = [
+        item(40.58, instituicao='Executivo'),
+        item(2.73, co_poder='L', instituicao='Legislativo'),
+        item(5.46, co_poder='J', instituicao='Judiciario'),
+        item(1.77, co_poder='M', instituicao='Ministerio Publico'),
+        item(0, instituicao='Outra instituicao 1'),
+        item(0, instituicao='Outra instituicao 2'),
+    ]
+    dados = consolidar_dtp(2026, linhas)
+    assert dados['aprovado'] is True
+    assert dados['dados_calculados']['percentual'] == 50.54
+    poderes = {p['poder']: p for p in dados['dados_calculados']['poderes']}
+    assert poderes['Judiciário']['faixa'] == 'alerta'
+    assert poderes['Legislativo']['faixa'] == 'dentro_limite'

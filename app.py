@@ -20,6 +20,8 @@ def status_atualizacao_siconfi():
 
 # Módulos da nossa arquitetura
 from src.simulador.rule_engine import analisar_operacao
+from src.simulador.parametros_simulacao import obter_fator_projecao, salvar_fator_projecao
+from src.simulador.painel_fiscal import obter_painel_fiscal
 from src.simulador.data_updater import atualizar_operacoes_rreo, atualizar_operacoes_rgf
 from src.simulador.database_models import db, RREO
 from src.simulador.logger import log
@@ -140,14 +142,36 @@ def obter_dados_iniciais():
         return {"status": "erro", "mensagem": str(e), "anos_disponiveis": []}
 
 @eel.expose
-def analisar_operacao_py(ano: int, valor_requisitado: float):
+def obter_fator_projecao_py():
+    return obter_fator_projecao()
+
+
+@eel.expose
+def obter_painel_fiscal_py():
+    try:
+        return {'status': 'sucesso', 'painel': obter_painel_fiscal()}
+    except Exception as exc:
+        log.error('Erro ao obter painel fiscal.', details=str(exc), modulo='app.py')
+        return {'status': 'erro', 'mensagem': 'Não foi possível carregar o painel fiscal.'}
+
+
+@eel.expose
+def salvar_fator_projecao_py(valor):
+    try:
+        return {'status': 'sucesso', 'fator': salvar_fator_projecao(valor)}
+    except ValueError as exc:
+        return {'status': 'erro', 'mensagem': str(exc)}
+
+
+@eel.expose
+def analisar_operacao_py(ano: int, valor_requisitado: float, servico_input=None):
     """
     Ponto de entrada principal para executar o motor de regras e retornar a análise completa.
     """
     try:
         log.info("Recebido pedido de análise do frontend.", modulo="app.py", funcao="analisar_operacao_py", ano=ano, valor_requisitado=valor_requisitado)
         # Esta chamada agora invoca nosso orquestrador inteligente
-        resultado = analisar_operacao(ano, valor_requisitado)
+        resultado = analisar_operacao(ano, valor_requisitado, servico_input)
         log.success("Análise via orquestrador concluída com sucesso.")
         return resultado
     except Exception as e:

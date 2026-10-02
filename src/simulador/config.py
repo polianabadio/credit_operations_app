@@ -31,6 +31,9 @@ def get_asset_path(relative_path):
     return base_path / relative_path
 
 def get_config_file_path(filename="settings.ini"):
+    data_dir = os.environ.get('SIMULADOR_DATA_DIR')
+    if data_dir:
+        return Path(data_dir).expanduser().resolve() / filename
     if getattr(sys, 'frozen', False):
         # Estamos rodando empacotado (exe)
         # sys.executable é o caminho completo para o .exe
@@ -74,6 +77,7 @@ class ConfigManager:
             'path': 'instance/database.db' 
         }
         self.parser['updater'] = { 'anos_historico': '3' }
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self.save()
 
     def save(self):
@@ -126,9 +130,10 @@ config_manager = ConfigManager(CONFIG_FILE_PATH)
 
 # Diretório base da aplicação
 BASE_DIR = get_asset_path('')
+DATA_DIR = Path(os.environ['SIMULADOR_DATA_DIR']).expanduser().resolve() if os.environ.get('SIMULADOR_DATA_DIR') else BASE_DIR
 
 # Configurações de upload
-UPLOAD_FOLDER = BASE_DIR / "uploads"
+UPLOAD_FOLDER = DATA_DIR / "uploads"
 ALLOWED_EXTENSIONS = {'csv', 'xlsx', 'xls'}
 
 # Configurações do Eel
@@ -145,7 +150,7 @@ DEBUG = True
 def criar_diretorios():
     """Cria os diretórios necessários para a aplicação."""
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    os.makedirs(BASE_DIR / "instance", exist_ok=True)
+    os.makedirs(DATA_DIR / "instance", exist_ok=True)
 
 # Configurações de logging
 LOGGING_CONFIG = {
@@ -167,7 +172,7 @@ LOGGING_CONFIG = {
             'class': 'logging.FileHandler',
             'level': 'DEBUG',
             'formatter': 'default',
-            'filename': BASE_DIR / 'app.log',
+            'filename': DATA_DIR / 'app.log',
             'mode': 'a',
         }
     },

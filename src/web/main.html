@@ -23,6 +23,7 @@
                 <button id="btn-atualizar" class="text-white bg-gradient-to-r from-green-400 via-green-500 to-green-600 hover:bg-gradient-to-br focus:ring-4 focus:outline-none focus:ring-green-300 dark:focus:ring-green-800 shadow-lg shadow-green-500/50 dark:shadow-lg dark:shadow-green-800/80 font-medium rounded-lg text-sm px-5 py-2.5 text-center">
                     Atualizar Dados Siconfi
                 </button>
+                <button id="nav-painel" type="button">Painel fiscal</button>
                 <button id="nav-simulacao" class="text-white bg-gradient-to-r from-teal-400 via-teal-500 to-teal-600 hover:bg-gradient-to-br focus:ring-4 focus:outline-none focus:ring-teal-300 dark:focus:ring-teal-800 shadow-lg shadow-teal-500/50 dark:shadow-lg dark:shadow-teal-800/80 font-medium rounded-lg text-sm px-5 py-2.5 text-center">
                     Simulador
                 </button>
@@ -37,51 +38,97 @@
 
     <div class="flex-grow container px-6 py-6 mx-auto my-2">
 
-        <section class="bg-white mt-8 rounded-xl border shadow-sm" id="secao-simulacao">
-            <div class="container px-6 py-6 mx-auto">
-                
-                <div class="bg-white p-6 rounded-lg shadow-md mb-6">
-                    <h2 class="text-2xl font-bold mb-4 text-gray-800">Simulação de Operação de Crédito</h2>
-                    <form id="form-simulacao" class="space-y-4">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label for="ano" class="block text-sm font-medium text-gray-700 mb-2">Ano de Referência:</label>
-                                <select id="ano" name="ano" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                    </select>
-                            </div>
-                            <div>
-                                <label for="valor-requisitado" class="block text-sm font-medium text-gray-700 mb-2">Valor Requisitado (R$):</label>
-                                <input type="number" id="valor-requisitado" name="valor-requisitado" step="0.01" min="0" 
-                                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                       placeholder="Digite o valor (opcional)">
-                            </div>
+        <section id="secao-painel" class="painel-fiscal" aria-labelledby="painel-titulo">
+            <section class="painel-principal" aria-labelledby="painel-titulo">
+                <header class="painel-hero">
+                    <div>
+                        <p class="painel-kicker">Situação atual do ente</p>
+                        <h1 id="painel-titulo">Estado de Goiás</h1>
+                        <div class="painel-meta">
+                            <span id="painel-exercicio">Exercício: não disponível</span>
+                            <span id="painel-periodo">Data-base fiscal: não disponível</span>
+                            <span id="painel-fonte">Fonte: SICONFI</span>
+                            <span id="painel-consulta">Última consulta: não registrada</span>
                         </div>
-                        <div class="flex justify-center pt-4">
-                            <button type="submit" class="simulation-button">
-                                <span>Simular operação</span><span aria-hidden="true">→</span>
-                            </button>
-                        </div>
-                    </form>
-                </div>
-
-                <div id="tabela-resultados-container" class="bg-white p-6 rounded-lg shadow-md mb-6" style="display: none;">
-                    <h3 class="text-xl font-bold mb-4 text-gray-800">Resultados da Análise</h3>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full bg-white">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Regra</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Descrição</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody id="tbody-resultados" class="bg-white divide-y divide-gray-200">
-                                </tbody>
-                        </table>
                     </div>
+                    <span id="painel-estado-dados" class="painel-data-status" role="status">Carregando dados fiscais…</span>
+                </header>
+                <div id="painel-indicadores" class="painel-indicadores" aria-label="Indicadores principais"></div>
+            </section>
+
+            <section id="painel-limites-secao" class="painel-box" aria-labelledby="painel-limites-titulo">
+                <div class="painel-section-head"><div><p class="painel-kicker">Limites fiscais</p><h2 id="painel-limites-titulo">Como está o ente em relação aos principais limites?</h2></div></div>
+                <p class="painel-help">Os valores abaixo mostram quanto de cada limite está utilizado antes da contratação de uma nova operação.</p>
+                <div id="painel-limites" class="painel-limites"></div>
+            </section>
+
+            <div id="painel-alertas" class="painel-alertas" role="status"></div>
+            <div class="painel-cta"><p>Agora informe os dados da nova operação para calcular seu impacto.</p><button id="btn-nova-operacao" type="button" class="simulation-button">Analisar nova operação de crédito</button></div>
+
+            <section class="painel-dados-usados" aria-labelledby="painel-origem-titulo">
+                <h2 id="painel-origem-titulo">Dados utilizados</h2>
+                <p id="painel-contagem" class="painel-help"></p>
+                <details id="painel-fontes-detalhes" class="painel-details"><summary>Ver fontes e períodos utilizados</summary><div id="painel-fontes"></div></details>
+            </section>
+        </section>
+
+        <section id="secao-simulacao" class="simulacao-pagina hidden" aria-labelledby="simulacao-titulo">
+            <header class="simulacao-cabecalho painel-box">
+                <p class="painel-kicker">Dados da operação</p>
+                <h1 id="simulacao-titulo">Simulação de operação de crédito</h1>
+                <p>Confira o efeito do valor informado na Regra de Ouro do exercício selecionado e consulte as demais verificações disponíveis.</p>
+                <p class="simulacao-ressalva">Esta simulação não representa autorização ou aprovação da operação.</p>
+            </header>
+
+            <div class="simulacao-colunas">
+                <section class="painel-box simulacao-formulario" aria-labelledby="simulacao-dados-titulo">
+                    <h2 id="simulacao-dados-titulo">Dados da nova operação</h2>
+                    <p class="painel-help">Selecione o exercício e informe o valor a considerar na Regra de Ouro atual.</p>
+                    <form id="form-simulacao" novalidate>
+                        <div class="simulacao-campos">
+                            <div>
+                                <label for="ano">Ano de referência</label>
+                                <select id="ano" name="ano" aria-describedby="ano-ajuda"></select>
+                                <p id="ano-ajuda" class="simulacao-ajuda">Define o exercício dos dados fiscais e das regras avaliadas.</p>
+                            </div>
+                            <div>
+                                <label for="valor-requisitado">Valor requisitado (R$)</label>
+                                <input type="text" inputmode="decimal" autocomplete="off" id="valor-requisitado" name="valor-requisitado" aria-describedby="valor-ajuda valor-erro" placeholder="R$ 0,00">
+                                <p id="valor-ajuda" class="simulacao-ajuda">Se ficar vazio, o sistema considera R$ 0,00. O valor informado entra na Regra de Ouro do exercício atual.</p>
+                                <p id="valor-erro" class="simulacao-erro" role="alert" hidden></p>
+                            </div>
+                        </div>
+                        <button type="submit" class="simulation-button"><span>Calcular impacto da operação</span><span aria-hidden="true">→</span></button>
+                    </form>
+                </section>
+
+                <aside class="painel-box simulacao-explicacao" aria-labelledby="simulacao-avaliacao-titulo">
+                    <h2 id="simulacao-avaliacao-titulo">O que será avaliado?</h2>
+                    <ul>
+                        <li><strong>Regra de Ouro atual</strong><span>Compara a margem apurada com o valor requisitado.</span></li>
+                        <li><strong>Regra de Ouro anterior e DTP</strong><span>Verificam os dados fiscais publicados, sem acrescentar o valor desta operação aos indicadores.</span></li>
+                        <li><strong>Serviço da dívida e DCL</strong><span>O serviço exige o fluxo de juros e amortização no detalhamento; a DCL é verificada quando essa etapa permite avançar.</span></li>
+                    </ul>
+                    <details class="painel-details"><summary>Como a simulação funciona</summary><p>O sistema consulta RREO e RGF do exercício escolhido. A Regra de Ouro atual usa o valor requisitado; o serviço da dívida usa RCL, despesas publicadas e, para projetar o contrato, os pagamentos informados no detalhe da regra. As regras ainda não implementadas não aparecem como resultado.</p></details>
+                </aside>
+            </div>
+
+            <section id="tabela-resultados-container" class="painel-box simulacao-resultados" style="display: none;" aria-labelledby="simulacao-resultados-titulo">
+                <p class="painel-kicker">Resultado da simulação</p>
+                <h2 id="simulacao-resultados-titulo">Verificações disponíveis</h2>
+                <p class="painel-help">Os valores acima vêm da memória de cálculo da regra. Consulte “Ver Detalhes” para conferir a composição e as fontes.</p>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full bg-white">
+                        <thead class="bg-gray-50"><tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Regra</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Descrição</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
+                        </tr></thead>
+                        <tbody id="tbody-resultados" class="bg-white divide-y divide-gray-200"></tbody>
+                    </table>
                 </div>
-                </div>
+            </section>
         </section>
 
         <section class="bg-white mt-8 rounded-xl border shadow-sm hidden" id="secao-dados">
@@ -158,11 +205,12 @@
 
     </div>
     
-    <div id="modal-feedback" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
-        <div class="relative top-10 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+    <div id="modal-feedback" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-hidden h-full w-full hidden z-50 items-center justify-center p-4">
+        <div class="relative mx-auto p-5 border w-full md:w-3/4 lg:w-4/5 max-w-5xl shadow-lg rounded-md bg-white">
             <div class="flex justify-between items-center pb-3 border-b">
                 <div>
                     <h3 id="modal-title" class="text-xl font-bold text-gray-900">Nome da Regra</h3>
+                    <p id="modal-ano-analise" class="text-sm text-gray-600" hidden></p>
                     <p id="modal-status" class="font-semibold">Status</p>
                 </div>
                 <button id="btn-fechar-modal" class="text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm p-1.5 ml-auto inline-flex items-center">
@@ -170,7 +218,8 @@
                 </button>
             </div>
             
-            <div class="mt-4 max-h-[70vh] overflow-y-auto p-1">
+            <div class="modal-feedback-conteudo mt-4 p-1">
+                <p id="servico-modal-intro" class="hidden servico-intro">Verifica se o serviço da dívida, considerando juros, encargos e amortizações, permanece dentro do limite de 11,5% da Receita Corrente Líquida projetada.</p>
                 <dl class="space-y-4">
                     <div>
                         <dt class="font-semibold text-gray-800">Descrição</dt>
@@ -193,6 +242,45 @@
                         <dd id="modal-dados-calculados" class="text-sm text-gray-600 ml-2"></dd>
                     </div>
                 </dl>
+                <section id="servico-projecoes" class="servico-etapa hidden p-5 mt-5 space-y-4">
+                    <h3 class="text-lg font-semibold text-gray-900">2ª etapa — Projeção dos exercícios futuros</h3>
+                    <p class="text-sm text-gray-600">Informe o fluxo previsto da operação para cada ano do contrato. Campos vazios não são considerados zero.</p>
+                    <div class="servico-projecao-controles">
+                        <div id="servico-dados-base"></div>
+                        <details id="servico-parametros" class="hidden">
+                            <summary class="cursor-pointer text-sm font-semibold text-gray-800">Fator da projeção futura <span id="valor-fator-resumo" class="sr-only"></span></summary>
+                            <div class="pt-4 space-y-3">
+                                <p class="text-sm text-gray-600">O fator é aplicado somente à RCL projetada dos exercícios futuros. O último valor salvo será usado nas próximas simulações.</p>
+                                <p class="text-sm text-gray-600">Ano-base: exercício anterior ao ano selecionado. RCL projetada = RCL de referência × fator<sup>n</sup>, em que n começa em 1. Limite futuro = RCL projetada × 11,5%.</p>
+                                <p id="servico-fator-fonte" class="text-sm text-gray-600"></p>
+                                <label class="text-sm font-medium text-gray-700">Fator de projeção da RCL
+                                    <input id="fator-rcl" type="number" min="0.000000001" step="any" class="mt-1 block rounded-md border border-gray-300 px-3 py-2">
+                                </label>
+                            </div>
+                        </details>
+                    </div>
+                    <label class="block text-sm font-medium text-gray-700">Ano final do contrato
+                        <select id="ano-fim-contrato" class="mt-1 block w-full md:w-1/2 rounded-md border border-gray-300 px-3 py-2"></select>
+                    </label>
+                    <p id="servico-anos-contexto" class="text-sm text-gray-600"></p>
+                    <div>
+                        <h4 class="font-semibold text-gray-800">Hipótese 1 — Serviço da operação pretendida</h4>
+                        <p class="text-sm text-gray-600">Informe juros, encargos e amortização previstos. O sistema compara cada ano com 11,5% da RCL projetada e aprova a hipótese quando a média dos percentuais anuais for inferior a 11,5%.</p>
+                        <div class="servico-grid-head" aria-hidden="true"><span>Ano</span><span>Juros e encargos</span><span>Amortização</span></div>
+                        <div id="linhas-hipotese-1" class="space-y-2 mt-2"></div>
+                        <p class="servico-input-help">Cole uma coluna do Excel em qualquer campo para preencher os anos seguintes, ou duas colunas a partir de juros e encargos para preencher também a amortização.</p>
+                    </div>
+                    <div id="secao-hipotese-2" class="hidden border-t border-gray-200 pt-4">
+                        <h4 class="font-semibold text-gray-800">Hipótese 2 — Dívida prevista até dezembro de 2027</h4>
+                        <p class="text-sm text-gray-600">A Hipótese 1 não foi atendida. Informe o serviço da dívida pública previsto até 2027; a decisão também considera a média dos percentuais anuais.</p>
+                        <div class="servico-grid-head" aria-hidden="true"><span>Ano</span><span>Juros e encargos</span><span>Amortização</span></div>
+                        <div id="linhas-hipotese-2" class="space-y-2 mt-2"></div>
+                        <p class="servico-input-help">A colagem de uma ou duas colunas do Excel também funciona nesta hipótese.</p>
+                    </div>
+                    <button id="btn-recalcular-servico" type="button" class="px-5 py-2 bg-green-700 text-white font-medium rounded-lg hover:bg-green-800">Calcular projeção</button>
+                </section>
+                <div id="servico-resultados" class="hidden mt-5"></div>
+                <p id="referencia-rreo-servico" class="hidden"></p>
             </div>
             
             <div class="flex justify-end pt-3 mt-4 border-t">

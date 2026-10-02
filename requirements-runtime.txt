@@ -1,0 +1,5 @@
+Eel==0.18.2
+SQLAlchemy==2.0.43
+PyYAML==6.0.2
+requests==2.32.5
+psutil==7.1.2

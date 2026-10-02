@@ -81,8 +81,20 @@ credit_operations_app/
 Para empacotar o aplicativo em um executável standalone, utilize o PyInstaller com o seguinte comando:
 
 ```bash
-   pyinstaller  --noconsole --onefile --icon="assets/icon.ico" --add-data="src/web;src/web" --add-data="modelo.yaml;." --name="Operations_Credit_v2.0" app.py
+   pyinstaller --noconsole --onefile --icon="assets/icon.ico" --add-data="src/web;src/web" --add-data="modelo.yaml;." --name="Operations_Credit_v2.1.0" app.py
 ```
+## Instalador Windows
+
+Para gerar o executável atualizado e o instalador, execute no PowerShell, na raiz do projeto:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File installer/build.ps1
+```
+
+O script usa o PyInstaller e precisa do compilador `ISCC.exe` do [Inno Setup](https://jrsoftware.org/isdl.php). Se o Inno Setup não estiver instalado, o executável ficará em `dist/Operations_Credit_v2.1.0.exe`; instale o Inno Setup e execute o script novamente. Você também pode passar o caminho do compilador com `-InnoCompiler`. O instalador final será `installer/output/SimuladorOperacoesCredito-Setup-2.1.0.exe`.
+
+O instalador usa `%LOCALAPPDATA%\Programs\SimuladorOperacoesCredito` e não exige permissão de administrador. Ele inclui o executável e um `settings.ini` inicial sem credenciais; o banco SQLite é criado na primeira execução. Atualizações no mesmo diretório preservam o banco e as configurações. O banco e o `settings.ini` desta máquina de desenvolvimento não são incluídos.
+
 ## Contribuição
 
 No momento não estamos aceitando contribuições externas. No entanto, sinta-se à vontade para abrir issues.
