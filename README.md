@@ -28,7 +28,7 @@ Para configurar e rodar o projeto localmente, siga os passos abaixo:
 1. **Clone o repositório:**
 
    ```bash
-   git clone https://github.com/PedroFGN1/credit_operations_app.git
+   git clone https://github.com/polianabadio/credit_operations_app.git
    cd credit_operations_app
    ```
 
