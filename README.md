@@ -105,6 +105,7 @@ Este projeto está licenciado sob licença personalizada. Veja o arquivo `LICENS
 
 ---
 
-## Desenvolvido por Pedro Galvão - [GitHub](https://github.com/PedroFGN1)
+## Desenvolvido por Pedro Galvão [GitHub](https://github.com/PedroFGN1) e Por Poliana Abadio [GitHub](https://github.com/polianabadio)
+## 
 
 ---
