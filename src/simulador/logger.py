@@ -3,6 +3,8 @@
 
 import logging
 import sys
+from pathlib import Path
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from typing import List, Dict, Any
 from enum import Enum
@@ -29,8 +31,19 @@ class LoggerComponent:
         self.logger = logging.getLogger(self.name)
         self.logger.setLevel(logging.INFO)
         if not self.logger.handlers:
-            handler = logging.StreamHandler(sys.stdout)
             formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            if sys.stdout is not None:
+                handler = logging.StreamHandler(sys.stdout)
+                handler.setFormatter(formatter)
+                self.logger.addHandler(handler)
+            # No executável --windowed não há terminal. Guarde erros ao lado do exe.
+            log_dir = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[2]
+            try:
+                handler = RotatingFileHandler(log_dir / 'app.log', maxBytes=1_000_000,
+                                              backupCount=2, encoding='utf-8')
+                handler.setLevel(logging.WARNING)
+            except OSError:
+                return
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
 
@@ -63,11 +76,12 @@ class LoggerComponent:
         }
         backend_log_level = log_level_map.get(level.value[0], logging.INFO)
         
+        traceback_requested = kwargs.pop('traceback', False)
         context_str = " ".join([f"{k}={v}" for k, v in kwargs.items()])
         full_message = f"{message} {details or ''} [{context_str}]"
         
         # Usa o nível mapeado para o logger do backend
-        self.logger.log(backend_log_level, full_message)
+        self.logger.log(backend_log_level, full_message, exc_info=traceback_requested)
 
     # --- Funções públicas atualizadas para aceitar **kwargs ---
     def debug(self, message: str, details: str = None, **kwargs): self._log(LogLevel.DEBUG, message, details, **kwargs)

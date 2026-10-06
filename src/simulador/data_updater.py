@@ -9,7 +9,7 @@ import requests
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
-from threading import Lock
+from threading import Lock, local
 from time import monotonic, sleep
 from sqlalchemy.orm import Session
 
@@ -19,10 +19,11 @@ from .logger import log
 
 _http_lock = Lock()
 _ultima_requisicao = 0.0
+HTTP_WORKERS = 12
 
 
 def _aguardar_limite_api():
-    """A API do Tesouro permite uma requisição por segundo."""
+    """Espaça localmente as chamadas ao SICONFI para evitar sobrecarga."""
     global _ultima_requisicao
     with _http_lock:
         agora = monotonic()
@@ -51,8 +52,8 @@ def _atualizar_dados_siconfi(modelo_db, endpoint, params_base, periodo_params, p
         consultas = {r.chave: r for r in session.query(SincronizacaoSiconfi).all()}
         for periodo in periodo_params:
             anterior = consultas.get(chave_consulta(periodo))
-            validade = timedelta(hours=1) if anterior and anterior.quantidade == 0 else (
-                timedelta(days=7) if periodo['an_exercicio'] < agora.year else timedelta(hours=1))
+            validade = (timedelta(days=7) if periodo['an_exercicio'] < agora.year
+                        else timedelta(hours=1))
             # Uma consulta marcada como concluída não basta se suas linhas não
             # estiverem no banco (por exemplo, após restaurar um backup).
             dados_presentes = True
@@ -74,6 +75,8 @@ def _atualizar_dados_siconfi(modelo_db, endpoint, params_base, periodo_params, p
     concluidas = len(sucessos)
     if progresso:
         progresso(concluidas, len(periodo_params))
+    if not pendentes:
+        return sucessos, falhas, avisos
     def registrar_consulta(session, periodo, quantidade):
         session.merge(SincronizacaoSiconfi(chave=chave_consulta(periodo),
                       consultado_em=datetime.now(), quantidade=quantidade))
@@ -82,38 +85,46 @@ def _atualizar_dados_siconfi(modelo_db, endpoint, params_base, periodo_params, p
         'rgf': ['exercicio', 'periodo', 'instituicao', 'co_poder', 'anexo', 'rotulo', 'coluna', 'cod_conta'],
     }[endpoint]
     base_url = f"https://apidatalake.tesouro.gov.br/ords/siconfi/tt/{endpoint}"
+    conexao_local = local()
+    conexoes = []
+    conexoes_lock = Lock()
     # Somente HTTP em paralelo; gravações permanecem sequenciais.
     def buscar(periodo):
         try:
-            with requests.Session() as http:
-                items, offset = [], 0
-                while True:
-                    for tentativa in range(3):
-                        try:
-                            _aguardar_limite_api()
-                            response = http.get(base_url, params={**params_base, **periodo, 'offset': offset}, timeout=(10, 30))
-                            response.raise_for_status()
-                            break
-                        except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
-                            codigo = getattr(getattr(exc, 'response', None), 'status_code', None)
-                            temporario = not isinstance(exc, requests.HTTPError) or codigo in (429, 500, 502, 503, 504)
-                            if not temporario or tentativa == 2:
-                                raise
-                            sleep(1 + tentativa)
-                    data = response.json()
-                    if not isinstance(data, dict) or not isinstance(data.get('items'), list):
-                        raise ValueError('Resposta inválida: a API não retornou uma lista items.')
-                    pagina = data['items']
-                    items.extend(pagina)
-                    if not data.get('hasMore', False):
-                        return items
-                    if not pagina:
-                        raise ValueError('Paginação inválida: página vazia com hasMore=true.')
-                    offset += len(pagina)
+            http = getattr(conexao_local, 'http', None)
+            if http is None:
+                http = requests.Session()
+                conexao_local.http = http
+                with conexoes_lock:
+                    conexoes.append(http)
+            items, offset = [], 0
+            while True:
+                for tentativa in range(3):
+                    try:
+                        _aguardar_limite_api()
+                        response = http.get(base_url, params={**params_base, **periodo, 'offset': offset}, timeout=(10, 30))
+                        response.raise_for_status()
+                        break
+                    except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
+                        codigo = getattr(getattr(exc, 'response', None), 'status_code', None)
+                        temporario = not isinstance(exc, requests.HTTPError) or codigo in (429, 500, 502, 503, 504)
+                        if not temporario or tentativa == 2:
+                            raise
+                        sleep(1 + tentativa)
+                data = response.json()
+                if not isinstance(data, dict) or not isinstance(data.get('items'), list):
+                    raise ValueError('Resposta inválida: a API não retornou uma lista items.')
+                pagina = data['items']
+                items.extend(pagina)
+                if not data.get('hasMore', False):
+                    return items
+                if not pagina:
+                    raise ValueError('Paginação inválida: página vazia com hasMore=true.')
+                offset += len(pagina)
         except Exception as exc:
             return exc
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    with ThreadPoolExecutor(max_workers=min(HTTP_WORKERS, len(pendentes))) as pool:
         tarefas = {pool.submit(buscar, periodo): periodo for periodo in pendentes}
         for tarefa in as_completed(tarefas):
             periodo = tarefas[tarefa]
@@ -125,6 +136,14 @@ def _atualizar_dados_siconfi(modelo_db, endpoint, params_base, periodo_params, p
                 items = resposta
                 if not items:
                     with Session(bind=engine) as session:
+                        consulta_dados = session.query(modelo_db).filter(
+                            modelo_db.exercicio == periodo['an_exercicio'],
+                            modelo_db.periodo == periodo['nr_periodo'],
+                            modelo_db.anexo == periodo['no_anexo'])
+                        if endpoint == 'rgf':
+                            consulta_dados = consulta_dados.filter(
+                                modelo_db.co_poder == periodo['co_poder'])
+                        consulta_dados.delete(synchronize_session=False)
                         registrar_consulta(session, periodo, 0)
                         session.commit()
                     aviso = {**periodo, 'motivo': 'SICONFI não retornou dados para este período e anexo.'}
@@ -134,27 +153,31 @@ def _atualizar_dados_siconfi(modelo_db, endpoint, params_base, periodo_params, p
 
                 filtrados = [item for item in items if endpoint != 'rreo'
                              or not (item.get('coluna') or '').startswith(('%', 'SALDO'))]
-                # Uma consulta de chaves por período, em vez de consultas OR a cada 50 linhas.
+                # Substitui o período em uma transação: publicações retificadas
+                # atualizam valores existentes e removem linhas que saíram da API.
                 with Session(bind=db.session.get_bind()) as session:
-                    query = session.query(*(getattr(modelo_db, chave) for chave in chaves)).filter(
+                    query = session.query(modelo_db).filter(
                         modelo_db.exercicio == periodo['an_exercicio'],
                         modelo_db.periodo == periodo['nr_periodo'],
                         modelo_db.anexo == periodo['no_anexo'])
-                    existentes = {tuple(row) for row in query.all()}
+                    if endpoint == 'rgf':
+                        query = query.filter(modelo_db.co_poder == periodo['co_poder'])
+                    query.delete(synchronize_session=False)
+                    vistos = set()
                     novos = []
                     for item in filtrados:
                         chave = _criar_chave_identificadora(item, chaves)
-                        if chave not in existentes:
+                        if chave not in vistos:
                             novos.append(item)
-                            existentes.add(chave)
+                            vistos.add(chave)
                     if novos:
                         session.bulk_insert_mappings(modelo_db, novos)
                     registrar_consulta(session, periodo, len(items))
                     session.commit()
                 sucessos.append(periodo)
                 log.info('Período processado.', endpoint=endpoint, **periodo,
-                         registros_resgatados=len(filtrados), registros_inseridos=len(novos),
-                         registros_ja_existentes=len(filtrados) - len(novos))
+                         registros_resgatados=len(filtrados), registros_gravados=len(novos),
+                         duplicatas_descartadas=len(filtrados) - len(novos))
             except Exception as exc:
                 motivo = ('Tempo limite excedido ao consultar o SICONFI.'
                           if isinstance(exc, requests.Timeout) else str(exc) or type(exc).__name__)
@@ -164,6 +187,8 @@ def _atualizar_dados_siconfi(modelo_db, endpoint, params_base, periodo_params, p
                 concluidas += 1
                 if progresso:
                     progresso(concluidas, len(periodo_params))
+    for conexao in conexoes:
+        conexao.close()
     return sucessos, falhas, avisos
 
 
@@ -187,8 +212,8 @@ def _periodos_para_consulta(endpoint, status='all'):
                  no_anexo=f'{endpoint.upper()}-Anexo {anexo:02}',
                  **({'co_poder': poder} if endpoint == 'rgf' else {}))
             for ano in reversed(list(anos))
-            for periodo in range(1, ((agora.month - 1) // meses_por_periodo
-                                      if status == 'now' else quantidade) + 1)
+            for periodo in reversed(range(1, ((agora.month - 1) // meses_por_periodo
+                                               if status == 'now' else quantidade) + 1))
             for anexo in ((1, 2, 3) if endpoint == 'rreo' else (1, 2, 3, 4, 6))
             for poder in (('E', 'L', 'J', 'M', 'D') if endpoint == 'rgf' and anexo == 1 else ('E',))]
 

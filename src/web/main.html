@@ -23,10 +23,12 @@
                 <button id="btn-atualizar" class="text-white bg-gradient-to-r from-green-400 via-green-500 to-green-600 hover:bg-gradient-to-br focus:ring-4 focus:outline-none focus:ring-green-300 dark:focus:ring-green-800 shadow-lg shadow-green-500/50 dark:shadow-lg dark:shadow-green-800/80 font-medium rounded-lg text-sm px-5 py-2.5 text-center">
                     Atualizar Dados Siconfi
                 </button>
-                <button id="nav-painel" type="button">Painel fiscal</button>
-                <button id="nav-simulacao" class="text-white bg-gradient-to-r from-teal-400 via-teal-500 to-teal-600 hover:bg-gradient-to-br focus:ring-4 focus:outline-none focus:ring-teal-300 dark:focus:ring-teal-800 shadow-lg shadow-teal-500/50 dark:shadow-lg dark:shadow-teal-800/80 font-medium rounded-lg text-sm px-5 py-2.5 text-center">
-                    Simulador
-                </button>
+                <div class="jornada-menu" aria-label="Navegação principal">
+                    <button id="nav-painel" type="button">Dashboard</button>
+                    <button id="nav-limites" type="button">Principais Limites</button>
+                    <button id="nav-simulacao" type="button">Simulação</button>
+                    <button id="nav-analise" type="button" disabled title="Faça uma simulação para ver a análise">Análise</button>
+                </div>
                 <button id="nav-configuracoes" class="text-white bg-gradient-to-r from-cyan-400 via-cyan-500 to-cyan-600 hover:bg-gradient-to-br focus:ring-4 focus:outline-none focus:ring-cyan-300 dark:focus:ring-cyan-800 shadow-lg shadow-cyan-500/50 dark:shadow-lg dark:shadow-cyan-800/80 font-medium rounded-lg text-sm px-4 py-2 text-center">
                     <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="30" height="30" viewBox="0,0,256,256">
                         <g fill="#ffffff" fill-rule="nonzero" stroke="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke-dasharray="" stroke-dashoffset="0" font-family="none" font-weight="none" font-size="none" text-anchor="none" style="mix-blend-mode: normal"><g transform="scale(5.12,5.12)"><path d="M32.21875,2.0625l-0.78125,0.3125l-2.8125,1.09375l-0.78125,0.3125l0.1875,0.8125l0.59375,3c-0.29297,0.29297 -0.60547,0.63672 -0.9375,1l-2.96875,-0.65625l-0.8125,-0.1875l-0.3125,0.75l-1.21875,2.8125l-0.3125,0.75l0.6875,0.46875l2.5625,1.71875c-0.03125,0.48828 -0.02734,0.98047 0,1.46875l-2.625,1.625l-0.71875,0.4375l0.3125,0.78125l1.09375,2.8125l0.3125,0.78125l0.8125,-0.1875l3,-0.59375c0.30469,0.36328 0.64063,0.69141 1,1l-0.6875,3l-0.1875,0.8125l0.78125,0.34375l2.8125,1.1875l0.75,0.3125l0.46875,-0.6875l1.71875,-2.5625c0.48828,0.03125 0.98047,0.02734 1.46875,0l1.625,2.65625l0.4375,0.6875l0.78125,-0.28125l3.59375,-1.4375l-0.1875,-0.8125l-0.6875,-3.28125c0.375,-0.31641 0.71484,-0.65625 1.03125,-1.03125l3.03125,0.78125l0.84375,0.21875l0.3125,-0.78125l1.21875,-2.8125l0.34375,-0.78125l-0.75,-0.46875l-2.625,-1.59375c0.03125,-0.48828 0.02734,-0.98047 0,-1.46875l2.625,-1.625l0.71875,-0.4375l-0.3125,-0.78125l-1.09375,-2.8125l-0.3125,-0.78125l-0.84375,0.1875l-3.0625,0.6875c-0.30469,-0.36328 -0.64062,-0.69141 -1,-1l0.65625,-3l0.1875,-0.8125l-0.75,-0.3125l-2.8125,-1.21875l-0.78125,-0.3125l-0.46875,0.71875l-1.59375,2.53125c-0.46094,-0.04687 -0.96094,-0.00391 -1.46875,0.03125l-1.625,-2.65625zM31.375,4.53125l1.46875,2.40625l0.375,0.59375l0.6875,-0.15625c0.70703,-0.15625 1.375,-0.07031 2.28125,0.03125l0.625,0.0625l0.34375,-0.53125l1.4375,-2.28125l1.25,0.53125l-0.625,2.6875l-0.15625,0.65625l0.5625,0.375c0.61328,0.4375 1.125,0.94922 1.5625,1.5625l0.375,0.5625l0.65625,-0.15625l2.75,-0.625l0.5,1.25l-2.40625,1.4375l-0.53125,0.34375l0.0625,0.625c0.09375,0.83594 0.09375,1.53906 0,2.375l-0.0625,0.625l0.53125,0.34375l2.375,1.46875l-0.5,1.1875l-2.78125,-0.6875l-0.6875,-0.15625l-0.375,0.5625c-0.4375,0.61328 -0.94922,1.125 -1.5625,1.5625l-0.53125,0.375l0.125,0.65625l0.625,2.96875l-1.25,0.46875l-1.4375,-2.375l-0.34375,-0.53125l-0.625,0.0625c-0.83594,0.09375 -1.53906,0.09375 -2.375,0l-0.625,-0.0625l-0.3125,0.5l-1.53125,2.3125l-1.28125,-0.5625l0.59375,-2.6875l0.15625,-0.625l-0.53125,-0.40625c-0.61328,-0.4375 -1.125,-0.94922 -1.5625,-1.5625l-0.375,-0.53125l-0.65625,0.125l-2.6875,0.5625l-0.46875,-1.25l2.375,-1.46875l0.5625,-0.34375l-0.09375,-0.625c-0.09375,-0.83594 -0.09375,-1.53906 0,-2.375l0.09375,-0.59375l-0.53125,-0.34375l-2.3125,-1.53125l0.53125,-1.28125l2.71875,0.625l0.59375,0.125l0.375,-0.46875c0.57031,-0.66406 1.15625,-1.25 1.65625,-1.75l0.375,-0.375l-0.09375,-0.5l-0.5625,-2.6875zM35,10c-2.75,0 -5,2.25 -5,5c0,2.75 2.25,5 5,5c2.75,0 5,-2.25 5,-5c0,-2.75 -2.25,-5 -5,-5zM35,12c1.66797,0 3,1.33203 3,3c0,1.66797 -1.33203,3 -3,3c-1.66797,0 -3,-1.33203 -3,-3c0,-1.66797 1.33203,-3 3,-3zM13.53125,20l-0.125,0.84375l-0.5,3.25c-0.54297,0.17188 -1.06641,0.42188 -1.5625,0.6875l-3.4375,-2.5l-3.5,3.5l0.46875,0.6875l1.90625,2.75c-0.26953,0.53516 -0.50781,1.07031 -0.6875,1.59375l-3.28125,0.59375l-0.8125,0.15625v4.875l0.8125,0.15625l3.28125,0.59375c0.17578,0.54688 0.41797,1.05859 0.6875,1.5625l-1.96875,2.65625l-0.53125,0.6875l3.5,3.5l0.6875,-0.46875l2.75,-1.90625c0.53516,0.26953 1.07031,0.50781 1.59375,0.6875l0.5,3.25l0.125,0.84375h4.90625l0.125,-0.8125l0.625,-3.28125c0.54297,-0.17187 1.06641,-0.42187 1.5625,-0.6875l3.4375,2.5l3.5,-3.5l-0.46875,-0.6875l-2,-2.78125c0.26172,-0.52734 0.51172,-1.04687 0.6875,-1.5625l3.375,-0.59375l0.8125,-0.15625v-4.90625l-4.21875,-0.625c-0.17187,-0.53906 -0.39062,-1.06641 -0.65625,-1.5625l2,-2.75l0.46875,-0.6875l-0.5625,-0.59375l-2.3125,-2.40625l-0.59375,-0.625l-0.71875,0.5l-2.75,2c-0.52734,-0.26172 -1.04687,-0.51172 -1.5625,-0.6875l-0.5,-3.25l-0.125,-0.84375zM15.25,22h1.5l0.5625,3.5625l0.5625,0.1875c0.89844,0.30078 1.73828,0.58203 2.40625,1l0.5625,0.34375l0.53125,-0.375l2.5,-1.8125l1.125,1.1875l-1.8125,2.53125l-0.40625,0.53125l0.375,0.5625c0.44922,0.71875 0.80078,1.55078 0.96875,2.3125l0.15625,0.65625l0.65625,0.09375l3.0625,0.46875v1.53125l-3.0625,0.53125l-0.59375,0.09375l-0.1875,0.5625c-0.30078,0.89844 -0.58203,1.73828 -1,2.40625l-0.375,0.5625l0.40625,0.53125l1.8125,2.53125l-1.125,1.09375l-2.5,-1.8125l-0.53125,-0.375l-0.5625,0.34375c-0.71875,0.44922 -1.55078,0.80078 -2.3125,0.96875l-0.625,0.15625l-0.125,0.65625l-0.53125,2.96875h-1.53125l-0.5625,-3.5625l-0.5625,-0.1875c-0.89844,-0.30078 -1.73828,-0.58203 -2.40625,-1l-0.5625,-0.34375l-0.53125,0.375l-2.53125,1.71875l-1.09375,-1.09375l1.78125,-2.40625l0.4375,-0.5625l-0.375,-0.5625c-0.44922,-0.71875 -0.80078,-1.51953 -0.96875,-2.28125l-0.15625,-0.65625l-0.65625,-0.125l-2.96875,-0.53125v-1.5625l2.96875,-0.53125l0.59375,-0.125l0.1875,-0.53125c0.30078,-0.89844 0.58203,-1.73828 1,-2.40625l0.34375,-0.5625l-0.375,-0.53125l-1.71875,-2.53125l1.125,-1.09375l2.5,1.8125l0.53125,0.375l0.5625,-0.34375c0.71875,-0.44922 1.55078,-0.80078 2.3125,-0.96875l0.65625,-0.15625l0.09375,-0.65625zM16,29c-2.74609,0 -5,2.25391 -5,5c0,2.74609 2.25391,5 5,5c2.74609,0 5,-2.25391 5,-5c0,-2.74609 -2.25391,-5 -5,-5zM16,31c1.65625,0 3,1.34375 3,3c0,1.65625 -1.34375,3 -3,3c-1.65625,0 -3,-1.34375 -3,-3c0,-1.65625 1.34375,-3 3,-3z"></path></g></g>
@@ -42,8 +44,9 @@
             <section class="painel-principal" aria-labelledby="painel-titulo">
                 <header class="painel-hero">
                     <div>
-                        <p class="painel-kicker">Situação atual do ente</p>
-                        <h1 id="painel-titulo">Estado de Goiás</h1>
+                        <p class="painel-kicker">Estado de Goiás · visão geral</p>
+                        <h1 id="painel-titulo">Capacidade fiscal para novas operações de crédito</h1>
+                        <p class="painel-help">Visão consolidada da capacidade de pagamento, dos limites fiscais e das margens disponíveis para novas operações de crédito.</p>
                         <div class="painel-meta">
                             <span id="painel-exercicio">Exercício: não disponível</span>
                             <span id="painel-periodo">Data-base fiscal: não disponível</span>
@@ -53,23 +56,52 @@
                     </div>
                     <span id="painel-estado-dados" class="painel-data-status" role="status">Carregando dados fiscais…</span>
                 </header>
-                <div id="painel-indicadores" class="painel-indicadores" aria-label="Indicadores principais"></div>
+                <div id="painel-indicadores" class="painel-indicadores" aria-label="CAPAG e indicadores principais"></div>
             </section>
 
-            <section id="painel-limites-secao" class="painel-box" aria-labelledby="painel-limites-titulo">
-                <div class="painel-section-head"><div><p class="painel-kicker">Limites fiscais</p><h2 id="painel-limites-titulo">Como está o ente em relação aos principais limites?</h2></div></div>
-                <p class="painel-help">Os valores abaixo mostram quanto de cada limite está utilizado antes da contratação de uma nova operação.</p>
-                <div id="painel-limites" class="painel-limites"></div>
+            <section class="painel-box" aria-labelledby="home-limites-titulo">
+                <p class="painel-kicker">Posição fiscal atual</p><h2 id="home-limites-titulo">Posição atual dos principais limites</h2>
+                <p class="painel-help">Os limites abaixo representam restrições diferentes e precisam ser atendidos simultaneamente. Nenhum deles, isoladamente, representa o valor máximo que pode ser contratado.</p>
+                <div id="home-limites" class="limites-resumo"></div>
+                <div class="limites-interpretacao">
+                    <h3>Como interpretar estes limites</h3>
+                    <ul id="limites-interpretacao-itens"></ul>
+                    <p>Uma nova operação deve respeitar simultaneamente esses limites.</p>
+                </div>
+                <button id="btn-ver-limites" type="button" class="jornada-link">Ver detalhes dos limites →</button>
+            </section>
+
+            <section class="painel-box regra-ouro-home" aria-labelledby="regra-ouro-home-titulo">
+                <p class="painel-kicker">Outra restrição fiscal</p>
+                <h2 id="regra-ouro-home-titulo">Regra de Ouro — exercício atual</h2>
+                <div id="ouro-teto-dashboard" class="ouro-teto-dashboard"></div>
+            </section>
+
+            <section class="painel-ponte" aria-labelledby="painel-ponte-titulo">
+                <h2 id="painel-ponte-titulo">O que isso significa para uma nova operação?</h2>
+                <p>Os indicadores acima mostram a posição fiscal atual do Estado, mas não determinam isoladamente um valor máximo de contratação.</p>
+                <p>O impacto de uma nova operação depende do valor pretendido, cronograma de desembolsos, prazo, juros, carência e amortizações.</p>
+                <p class="painel-ponte-conclusao">Por isso, a capacidade efetiva deve ser avaliada por meio da simulação da operação.</p>
             </section>
 
             <div id="painel-alertas" class="painel-alertas" role="status"></div>
-            <div class="painel-cta"><p>Agora informe os dados da nova operação para calcular seu impacto.</p><button id="btn-nova-operacao" type="button" class="simulation-button">Analisar nova operação de crédito</button></div>
+            <div class="painel-cta"><div><h2>Simule uma nova operação</h2><p>Informe o valor pretendido, prazo, juros, carência, amortizações e desembolsos para verificar o impacto da operação sobre os limites fiscais.</p></div><button id="btn-nova-operacao" type="button" class="simulation-button">Simular nova operação</button></div>
 
             <section class="painel-dados-usados" aria-labelledby="painel-origem-titulo">
                 <h2 id="painel-origem-titulo">Dados utilizados</h2>
                 <p id="painel-contagem" class="painel-help"></p>
                 <details id="painel-fontes-detalhes" class="painel-details"><summary>Ver fontes e períodos utilizados</summary><div id="painel-fontes"></div></details>
             </section>
+        </section>
+
+        <section id="secao-limites" class="painel-fiscal hidden" aria-labelledby="limites-titulo">
+            <header class="painel-box limites-cabecalho"><p class="painel-kicker">Análise Fiscal</p><h1 id="limites-titulo">Posição atual dos principais limites</h1>
+                <p class="painel-help">Posição fiscal do Estado em relação aos principais limites considerados na análise de operações de crédito.</p>
+                <div id="limites-meta" class="painel-meta"></div></header>
+            <h2 class="limites-secao-titulo">Detalhamento dos limites</h2>
+            <div id="painel-limites" class="limites-detalhes"></div>
+            <section class="painel-box limites-fator" aria-labelledby="fator-limitante-titulo"><h2 id="fator-limitante-titulo">Fator limitante</h2><strong id="fator-limitante-estado"></strong><p id="fator-limitante-texto" class="painel-help"></p><ul id="fator-limitante-impedimentos"></ul><p id="fator-limitante-conclusao"></p></section>
+            <div class="painel-cta"><div><h2>Impacto de uma nova operação</h2><p>A posição fiscal atual é apenas o ponto de partida. O impacto efetivo de uma nova contratação depende de valor, descontos, prazo, juros, carência e amortizações.</p></div><button id="btn-simular-limites" type="button" class="simulation-button">Simular nova operação</button></div>
         </section>
 
         <section id="secao-simulacao" class="simulacao-pagina hidden" aria-labelledby="simulacao-titulo">
@@ -113,10 +145,23 @@
                 </aside>
             </div>
 
+            <section class="painel-box simulacao-formulario" aria-labelledby="fluxo-sim-titulo">
+                <h2 id="fluxo-sim-titulo">Fluxo anual de operações de crédito · MGA/RCL</h2>
+                <p class="painel-help">As liberações de operações contratadas são consultadas automaticamente no SADIPEM. Informe a RCL projetada, a liberação da nova operação e, apenas quando não houver dado anual público, as liberações de operações ainda não contratadas. Campo vazio não significa zero.</p>
+                <form id="form-fluxo-credito" novalidate>
+                    <div id="fluxo-credito-linhas"></div>
+                    <button id="fluxo-adicionar-ano" type="button" class="jornada-link">Adicionar exercício</button>
+                    <button type="submit" class="simulation-button">Calcular cenário anual</button>
+                </form>
+                <div id="fluxo-credito-resultado" aria-live="polite"></div>
+            </section>
+
+        </section>
+        <section id="secao-analise" class="simulacao-pagina hidden" aria-labelledby="simulacao-resultados-titulo">
             <section id="tabela-resultados-container" class="painel-box simulacao-resultados" style="display: none;" aria-labelledby="simulacao-resultados-titulo">
                 <p class="painel-kicker">Resultado da simulação</p>
                 <h2 id="simulacao-resultados-titulo">Verificações disponíveis</h2>
-                <p class="painel-help">Os valores acima vêm da memória de cálculo da regra. Consulte “Ver Detalhes” para conferir a composição e as fontes.</p>
+                <p class="painel-help">Os resultados vêm da memória de cálculo de cada regra. Consulte “Ver Detalhes” para conferir a composição e as fontes.</p>
                 <div class="overflow-x-auto">
                     <table class="min-w-full bg-white">
                         <thead class="bg-gray-50"><tr>
@@ -332,6 +377,7 @@
 
     <script src="js/sys-status.js"></script>
     <script src="js/config.js"></script>
+    <script src="js/fiscal-dashboard.js"></script>
     <script src="js/eel-main.js"></script>
 </body>
 </html>

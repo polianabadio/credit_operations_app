@@ -6,13 +6,17 @@ from decimal import Decimal
 from sqlalchemy import func
 
 from .data_access import (obter_rcl_ajustada_endividamento, obter_registros_dcl,
-                          obter_registros_dtp, obter_dados_rreo_para_analise)
+                          obter_registros_dtp, obter_dados_rreo_para_analise,
+                          obter_servico_divida_exercicio_anterior, CONTAS_SERVICO_DIVIDA,
+                          COLUNA_LIQUIDADA, COLUNA_RESTOS)
 from .database_models import db, RREO, SincronizacaoSiconfi
 from .dcl import avaliar_dcl
 from .dtp import consolidar_dtp
-from .indicadores_rgf import obter_indicadores_rgf
+from .indicadores_rgf import obter_indicadores_rgf, obter_limite_mga_publicado
+from .fluxo_credito import CreditFlowLimitService
 from .capag import obter_capag
 from .rule_engine import RegraDeOuroAnoAnterior, RegraDeOuroAnoAtual
+from .servico_divida import avaliar_exercicio_anterior
 
 
 LIMITES_REFERENCIA = {
@@ -24,6 +28,27 @@ INDICADORES_PAINEL = (
     'ARO/RCL', 'Garantias/RCL', 'DTP/RCL',
     'Regra de Ouro anterior', 'Regra de Ouro corrente',
 )
+
+
+def _ultimo_servico_realizado(ano_limite):
+    """Usa o último exercício fechado com RCL e despesas do mesmo bimestre."""
+    for ano in range(min(ano_limite, datetime.now().year - 1), 2020, -1):
+        despesas = obter_servico_divida_exercicio_anterior(ano)
+        rcl = obter_rcl_ajustada_endividamento(ano)
+        if not despesas or not rcl or despesas['periodo'] != 6 or rcl['periodo'] != 6:
+            continue
+        juros = despesas['contas'][CONTAS_SERVICO_DIVIDA[0]]
+        amortizacao = despesas['contas'][CONTAS_SERVICO_DIVIDA[1]]
+        resultado = avaliar_exercicio_anterior(
+            rcl['valor'], juros[COLUNA_LIQUIDADA], amortizacao[COLUNA_LIQUIDADA],
+            juros[COLUNA_RESTOS], amortizacao[COLUNA_RESTOS])
+        return {'valor': float(resultado['percentual'] * 100), 'limite': 11.5,
+                'ano': ano, 'periodo': 6, 'anexo': 'RREO-Anexos 01 e 03',
+                'origem': 'SICONFI/RREO', 'natureza': 'servico_realizado',
+                'periodicidade': 'B', 'historico': True,
+                'servico_divida': float(resultado['servico_divida']),
+                'rcl': float(resultado['rcl'])}
+    return None
 
 
 def _ouro_previo(ano, registros, classe, tipo):
@@ -53,7 +78,8 @@ def obter_painel_fiscal():
         capag = obter_capag()
         return {'ente': 'Estado de Goiás', 'tipo_ente': 'Estado', 'exercicio': None,
                 'ultima_consulta': None, 'rcl': None, 'dcl': None, 'dtp': None,
-                'capag': capag, 'regra_ouro': [],
+                'capag': capag, 'limite_mga_publicado': None,
+                'fluxo_credito': None, 'regra_ouro': [],
                 'fontes': [{'indicador': 'CAPAG', **capag}] if capag else [],
                 'dados_disponiveis': int(capag is not None),
                 'dados_indisponiveis': len(INDICADORES_PAINEL) - int(capag is not None),
@@ -63,6 +89,8 @@ def obter_painel_fiscal():
     dcl = avaliar_dcl(ano, obter_registros_dcl(ano))
     dtp = consolidar_dtp(ano, obter_registros_dtp(ano))
     indicadores_rgf = obter_indicadores_rgf(ano)
+    limite_mga_publicado = obter_limite_mga_publicado(ano)
+    caed = _ultimo_servico_realizado(ano)
     capag = obter_capag()
     consulta = db.session.query(func.max(SincronizacaoSiconfi.consultado_em)).scalar()
     dados_rreo = obter_dados_rreo_para_analise(ano)
@@ -76,6 +104,15 @@ def obter_painel_fiscal():
         'valor': float(rcl['valor']), 'ano': ano, 'periodo': rcl['periodo'],
         'anexo': rcl['anexo'], 'origem': rcl['origem'],
     }
+    fluxo_credito = CreditFlowLimitService().avaliar(
+        ano, rcl_referencia=rcl['valor'] if rcl else None,
+        teto_referencia_publicado=(limite_mga_publicado['valor']
+                                   if limite_mga_publicado else None),
+        fontes=([{'tipo': 'RCL de referência', 'origem': rcl['origem'],
+                  'anexo': rcl['anexo'], 'ano': ano, 'periodo': rcl['periodo']}]
+                if rcl else []) + ([{'tipo': 'Teto de referência',
+                                    **limite_mga_publicado}]
+                                   if limite_mga_publicado else []))
     dcl_dto = None
     if dcl is not None:
         atual = next((v['percentual'] for v in dcl['dados_calculados']['valores']
@@ -111,10 +148,15 @@ def obter_painel_fiscal():
         {'indicador': 'DTP', **dtp_dto} if dtp_dto else None,
     ]
     fontes = [fonte for fonte in fontes if fonte is not None]
+    if limite_mga_publicado:
+        fontes.append({'indicador': 'Limite de operações de crédito (16% da RCL)',
+                       **limite_mga_publicado})
     for chave, rotulo in (('garantias', 'Garantias/RCL'),
                           ('mga', 'Operações de crédito/RCL'), ('aro', 'ARO/RCL')):
-        if chave in indicadores_rgf:
+        if chave in indicadores_rgf and not indicadores_rgf[chave].get('historico'):
             fontes.append({'indicador': rotulo, **indicadores_rgf[chave]})
+    if caed:
+        fontes.append({'indicador': 'Serviço da dívida realizado/RCL', **caed})
     if capag:
         fontes.append({'indicador': 'CAPAG', **capag})
     for item in ouro:
@@ -129,11 +171,13 @@ def obter_painel_fiscal():
     disponiveis = sum((rcl_dto is not None, dcl_dto is not None and dcl_dto['valor'] is not None,
                        dtp_dto is not None, *[item['dados_calculados'] is not None for item in ouro],
                        *[chave in indicadores_rgf for chave in ('garantias', 'mga', 'aro')],
-                       capag is not None))
+                       capag is not None, caed is not None))
     return {
         'ente': 'Estado de Goiás', 'tipo_ente': 'Estado', 'exercicio': ano,
         'ultima_consulta': consulta.isoformat() if consulta else None,
         'rcl': rcl_dto, 'dcl': dcl_dto, 'dtp': dtp_dto, 'capag': capag,
+        'caed': caed, 'limite_mga_publicado': limite_mga_publicado,
+        'fluxo_credito': fluxo_credito,
         **indicadores_rgf,
         'regra_ouro': ouro, 'fontes': fontes,
         'limites_referencia': LIMITES_REFERENCIA,

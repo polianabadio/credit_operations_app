@@ -33,6 +33,21 @@ class CapagPublicada(Base):
     fonte = Column(String(1000), nullable=False)
     consultado_em = Column(DateTime, nullable=False)
 
+
+class CapagIndicadores(Base):
+    __tablename__ = 'capag_indicadores'
+    uf = Column(String(2), primary_key=True)
+    ano_publicacao = Column(Integer, nullable=False)
+    ano_base = Column(Integer)
+    fonte = Column(String(1000), nullable=False)
+    consultado_em = Column(DateTime, nullable=False)
+    endividamento = Column(Numeric(18, 6), nullable=False)
+    nota_endividamento = Column(String(10), nullable=False)
+    poupanca_corrente = Column(Numeric(18, 6), nullable=False)
+    nota_poupanca_corrente = Column(String(10), nullable=False)
+    liquidez_relativa = Column(Numeric(18, 6), nullable=False)
+    nota_liquidez_relativa = Column(String(10), nullable=False)
+
 class RREO(Base):
     __tablename__ = 'rreo'
 

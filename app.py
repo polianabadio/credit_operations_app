@@ -22,6 +22,7 @@ def status_atualizacao_siconfi():
 from src.simulador.rule_engine import analisar_operacao
 from src.simulador.parametros_simulacao import obter_fator_projecao, salvar_fator_projecao
 from src.simulador.painel_fiscal import obter_painel_fiscal
+from src.simulador.sadipem import obter_comprometimento_goias, simular_fluxo_goias
 from src.simulador.data_updater import atualizar_operacoes_rreo, atualizar_operacoes_rgf
 from src.simulador.database_models import db, RREO
 from src.simulador.logger import log
@@ -57,7 +58,7 @@ def get_db_config():
 def save_db_config(config_data: dict):
     """Salva a nova configuração do banco de dados recebida do frontend."""
     try:
-        log.info("Recebida nova configuração de banco de dados para salvar.", modulo="app.py", config=config_data)
+        log.info("Recebida nova configuração de banco de dados para salvar.", modulo="app.py")
         config_manager.set_db_config(config_data)
         log.success("Configuração do banco de dados salva com sucesso. É necessário reiniciar a aplicação.")
         # É importante notar que a aplicação precisará ser reiniciada para usar a nova conexão.
@@ -156,6 +157,25 @@ def obter_painel_fiscal_py():
 
 
 @eel.expose
+def obter_comprometimento_sadipem_py():
+    """Consulta sob demanda ao abrir Principais Limites; o cliente HTTP mantém cache."""
+    painel = obter_painel_fiscal()
+    ano = painel.get('exercicio')
+    if ano is None:
+        return {'status': 'erro', 'mensagem': 'Exercício fiscal não disponível.'}
+    rcl = painel.get('rcl') or {}
+    return {'status': 'sucesso', 'sadipem': obter_comprometimento_goias(ano, rcl.get('valor'))}
+
+
+@eel.expose
+def simular_fluxo_credito_py(linhas):
+    try:
+        return {'status': 'sucesso', 'exercicios': simular_fluxo_goias(linhas)}
+    except (ValueError, KeyError, TypeError) as exc:
+        return {'status': 'erro', 'mensagem': str(exc)}
+
+
+@eel.expose
 def salvar_fator_projecao_py(valor):
     try:
         return {'status': 'sucesso', 'fator': salvar_fator_projecao(valor)}
@@ -221,7 +241,9 @@ def main():
     try:
         eel.init(str(EEL_WEB_FOLDER))
         log.info(f"Aplicação '{APP_NAME} v{APP_VERSION}' iniciando...")
-        eel.start('main.html', size=EEL_SIZE, position=EEL_POSITION)
+        # Porta livre por instância; tolera perdas breves da conexão com a janela.
+        eel.start('main.html', size=EEL_SIZE, position=EEL_POSITION,
+                  port=0, shutdown_delay=60.0)
     except Exception as e:
         log.critical(f"Não foi possível iniciar a aplicação Eel:", details=str(e), modulo="app.py", funcao="main", traceback=True)
 

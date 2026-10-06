@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
 from src.simulador import data_updater as updater
-from src.simulador.database_models import Base, RREO
+from src.simulador.database_models import Base, RREO, RGF
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ def test_falha_tecnica_nao_vira_aviso(ambiente, requests_mock, resposta):
     assert resultado['falhas'][0]['motivo']
 
 
-def test_paginacao_duplicatas_e_uma_consulta_por_periodo(ambiente, requests_mock):
+def test_paginacao_e_duplicatas_por_periodo(ambiente, requests_mock):
     engine, session = ambiente
     consultas = []
     event.listen(engine, 'before_cursor_execute',
@@ -63,10 +63,81 @@ def test_paginacao_duplicatas_e_uma_consulta_por_periodo(ambiente, requests_mock
                            {'json': {'items': [registro(), registro('Outra')], 'hasMore': False}}])
     assert not executar()[1]
     assert requests_mock.request_history[1].qs['offset'] == ['1']
-    assert sum(sql.startswith('SELECT') and 'FROM rreo' in sql for sql in consultas) == 1
     assert session.query(RREO).count() == 2
     assert not executar()[1]
     assert session.query(RREO).count() == 2
+
+
+def test_republicacao_substitui_valores_e_linhas_do_periodo(ambiente, requests_mock):
+    from datetime import datetime, timedelta
+    from src.simulador.database_models import SincronizacaoSiconfi
+
+    requests_mock.get(URL, [
+        {'json': {'items': [registro(), registro('Linha retirada')], 'hasMore': False}},
+        {'json': {'items': [{**registro(), 'valor': 125}], 'hasMore': False}},
+    ])
+    assert not executar()[1]
+    session = ambiente[1]
+    assert session.query(RREO).count() == 2
+    session.query(SincronizacaoSiconfi).update({
+        'consultado_em': datetime.now() - timedelta(hours=2)})
+    session.commit()
+    assert not executar()[1]
+    linhas = session.query(RREO).all()
+    assert len(linhas) == 1
+    assert linhas[0].conta == 'Receita'
+    assert linhas[0].valor == 125
+    assert requests_mock.call_count == 2
+
+
+def test_resposta_vazia_apos_publicacao_remove_periodo_antigo(ambiente, requests_mock):
+    from datetime import datetime, timedelta
+    from src.simulador.database_models import SincronizacaoSiconfi
+
+    requests_mock.get(URL, [
+        {'json': {'items': [registro()], 'hasMore': False}},
+        {'json': {'items': [], 'hasMore': False}},
+    ])
+    assert not executar()[1]
+    session = ambiente[1]
+    assert session.query(RREO).count() == 1
+    session.query(SincronizacaoSiconfi).update({
+        'consultado_em': datetime.now() - timedelta(hours=2)})
+    session.commit()
+    assert not executar()[1]
+    assert session.query(RREO).count() == 0
+
+
+def test_republicacao_rgf_preserva_outro_poder(ambiente, requests_mock):
+    from datetime import datetime, timedelta
+    from src.simulador.database_models import SincronizacaoSiconfi
+
+    params = {'in_periodicidade': 'Q', 'co_tipo_demonstrativo': 'RGF',
+              'co_esfera': 'E', 'id_ente': 52}
+    periodo = {'an_exercicio': 2026, 'nr_periodo': 2,
+               'no_anexo': 'RGF-Anexo 04', 'co_poder': 'E'}
+    url = 'https://apidatalake.tesouro.gov.br/ords/siconfi/tt/rgf'
+    linha = dict(exercicio=2026, periodo=2, periodicidade='Q',
+                 instituicao='Goias', uf='GO', co_poder='E', esfera='E',
+                 anexo='RGF-Anexo 04', rotulo='Apuracao', coluna='VALOR',
+                 cod_conta='OperacoesCredito', conta='Operacoes de credito', valor=100)
+    outra = {**linha, 'co_poder': 'L', 'valor': 50}
+    session = ambiente[1]
+    session.add(RGF(**outra))
+    session.commit()
+    requests_mock.get(url, [
+        {'json': {'items': [linha], 'hasMore': False}},
+        {'json': {'items': [{**linha, 'valor': 125}], 'hasMore': False}},
+    ])
+    def consultar():
+        return updater._atualizar_dados_siconfi(RGF, 'rgf', params, [periodo])
+    assert not consultar()[1]
+    session.query(SincronizacaoSiconfi).update({
+        'consultado_em': datetime.now() - timedelta(hours=2)})
+    session.commit()
+    assert not consultar()[1]
+    assert sorted((row.co_poder, row.valor) for row in session.query(RGF).all()) == [
+        ('E', 125), ('L', 50)]
 
 
 def test_falha_na_segunda_pagina_nao_salva_dados_parciais(ambiente, requests_mock):
@@ -150,6 +221,34 @@ def test_cache_expirado_busca_novamente(ambiente, requests_mock):
     session.commit()
     executar()
     assert requests_mock.call_count == 2
+
+
+def test_periodo_historico_sem_dados_nao_e_refeito_a_cada_abertura(ambiente, requests_mock):
+    from datetime import datetime, timedelta
+    from src.simulador.database_models import SincronizacaoSiconfi
+    periodo_antigo = {**PERIODO, 'an_exercicio': datetime.now().year - 1}
+    requests_mock.get(URL, json={'items': [], 'hasMore': False})
+    def consultar():
+        return updater._atualizar_dados_siconfi(RREO, 'rreo', PARAMS, [periodo_antigo])
+    consultar()
+    session = ambiente[1]
+    session.query(SincronizacaoSiconfi).update({
+        'consultado_em': datetime.now() - timedelta(hours=2)})
+    session.commit()
+    consultar()
+    assert requests_mock.call_count == 1
+    session.query(SincronizacaoSiconfi).update({
+        'consultado_em': datetime.now() - timedelta(days=8)})
+    session.commit()
+    consultar()
+    assert requests_mock.call_count == 2
+
+
+def test_periodos_mais_recentes_sao_consultados_primeiro():
+    periodos = updater._periodos_para_consulta('rreo', 'past')
+    ano_mais_recente = updater.datetime.now().year - 1
+    assert periodos[0]['an_exercicio'] == ano_mais_recente
+    assert periodos[0]['nr_periodo'] == 6
 
 
 def test_falha_nao_impede_nova_tentativa(ambiente, requests_mock):

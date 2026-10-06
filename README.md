@@ -109,3 +109,10 @@ Este projeto está licenciado sob licença personalizada. Veja o arquivo `LICENS
 ## 
 
 ---
+### Integração SADIPEM para o limite anual de crédito
+
+A página **Principais Limites** consulta a [API pública do SADIPEM](https://apidatalake.tesouro.gov.br/docs/sadipem/) sob demanda. O cliente em `src/simulador/sadipem.py` consulta `/pvl`, seleciona um único snapshot elegível do Estado de Goiás pela data/status e consulta `/opc-cronograma-liberacoes` e `/opnc-pvl-tramitacao-deferido` pelo `id_pleito`. Os valores de PVLs diferentes nunca são somados. O cliente faz no máximo uma requisição por segundo, pagina respostas, tenta novamente falhas transitórias e mantém cache por 60 minutos. `SADIPEM_BASE_URL` e `SADIPEM_CACHE_MINUTES` podem alterar a URL e o tempo de cache.
+
+O SICONFI continua sendo a fonte fiscal da RCL e do teto de referência. A RCL publicada **não é rotulada como RCL projetada**. A API pública oferece liberações de contratadas por PVL e, em alguns snapshots, liberações anuais de PVLs ainda não contratados; não oferece um MGA consolidado oficial para toda nova operação. Portanto, a aplicação não apresenta margem efetiva quando faltam cronogramas ou não é possível atestar a cobertura. A simulação anual permite informar RCL projetada, liberações da nova operação e complemento manual de não contratadas; seu resultado é identificado como cenário indicativo.
+
+Na consulta real de 06/10/2026, o PVL mais recente de Goiás era `74460` (`PVL02.001127/2026-73`, status de 30/07/2026). O endpoint público de liberações contratadas não retornou linha para esse PVL; a aplicação registra `NO_DATA`, sem converter ausência em zero. O card exibe os dados básicos reais desse PVL e, separadamente, a última referência histórica localizada: R$ 295.461.624,89 para 2018, no PVL `27067`. Esse valor histórico não entra no cálculo de 2026. Os campos e o comportamento podem mudar em novas publicações.

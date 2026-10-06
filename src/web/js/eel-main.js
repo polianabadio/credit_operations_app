@@ -1,4 +1,4 @@
-/**
+﻿/**
  * JavaScript principal para comunicação com Eel e renderização da interface.
  * Simulador de Operações de Crédito v2 - Refatorado
  */
@@ -7,35 +7,53 @@
 
 document.addEventListener('DOMContentLoaded', async function() {
     console.log('DOM carregado. Inicializando aplicação...');
+    recuperarConexaoBackend();
     configurarEventListeners();
     initializeMonitoringComponent();
     mostrarSecao('secao-painel');
     await Promise.allSettled([carregarDadosIniciais(), carregarPainelFiscal()]);
+    adicionarLinhaFluxoCredito();
     atualizarDadosSiconfi();
 });
 
+function recuperarConexaoBackend() {
+    const socket = eel._websocket;
+    if (!socket) return;
+    socket.addEventListener('close', async () => {
+        const aviso = document.createElement('div');
+        aviso.setAttribute('role', 'alert');
+        aviso.style.cssText = 'position:fixed;left:16px;right:16px;bottom:16px;z-index:9999;padding:14px;background:#fff;border:1px solid #aab4be;border-radius:8px;box-shadow:0 4px 16px #0002;color:#17212f';
+        aviso.textContent = 'Conexão com o aplicativo interrompida. Tentando reconectar...';
+        document.body.appendChild(aviso);
+        for (let tentativa = 0; tentativa < 20; tentativa++) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            try {
+                const resposta = await fetch('/eel.js', {cache: 'no-store'});
+                if (resposta.ok) {
+                    window.location.reload();
+                    return;
+                }
+            } catch (_) { /* O servidor pode estar reiniciando. */ }
+        }
+        aviso.textContent = 'O backend foi encerrado. Feche e abra o aplicativo novamente. Se persistir, consulte app.log na pasta do programa.';
+    });
+}
+
 // --- LÓGICA DE NAVEGAÇÃO ENTRE SEÇÕES ---
 function mostrarSecao(nomeSecao) {
-    // Esconde todas as seções principais
-    document.getElementById('secao-painel').classList.add('hidden');
-    document.getElementById('secao-simulacao').classList.add('hidden');
-    document.getElementById('secao-configuracoes').classList.add('hidden');
-    // Adicione outras seções aqui
-
-    // Remove a classe de 'ativo' de todos os links de navegação
-    document.getElementById('nav-painel').classList.remove();
-    document.getElementById('nav-simulacao').classList.remove();
-    document.getElementById('nav-configuracoes').classList.remove();
-    // Mostra a seção desejada
-    const secaoParaMostrar = document.getElementById(nomeSecao);
-    if (secaoParaMostrar) {
-        secaoParaMostrar.classList.remove('hidden');
+    for (const id of ['secao-painel', 'secao-limites', 'secao-simulacao', 'secao-analise', 'secao-configuracoes']) {
+        document.getElementById(id).classList.add('hidden');
     }
-    
-    // Adiciona a classe de 'ativo' ao link de navegação clicado
-    const navLinkAtivo = document.getElementById(`nav-${nomeSecao.split('-')[1]}`);
-    if (navLinkAtivo) {
-        navLinkAtivo.classList.add();
+    const secaoParaMostrar = document.getElementById(nomeSecao);
+    if (secaoParaMostrar) secaoParaMostrar.classList.remove('hidden');
+    const navegacao = {'secao-painel': 'nav-painel', 'secao-limites': 'nav-limites',
+        'secao-simulacao': 'nav-simulacao', 'secao-analise': 'nav-analise',
+        'secao-configuracoes': 'nav-configuracoes'};
+    for (const id of Object.values(navegacao)) {
+        const botao = document.getElementById(id);
+        botao.classList.toggle('ativo', id === navegacao[nomeSecao]);
+        if (id === navegacao[nomeSecao]) botao.setAttribute('aria-current', 'page');
+        else botao.removeAttribute('aria-current');
     }
 }
 
@@ -78,6 +96,8 @@ function configurarEventListeners() {
         else mostrarMensagem(resposta.mensagem, 'error');
     });
     document.getElementById('btn-recalcular-servico').addEventListener('click', () => executarSimulacao(true));
+    document.getElementById('fluxo-adicionar-ano').addEventListener('click', adicionarLinhaFluxoCredito);
+    document.getElementById('form-fluxo-credito').addEventListener('submit', executarFluxoCredito);
 
     // Botão para atualizar dados da API Siconfi
     document.getElementById('btn-atualizar').addEventListener('click', atualizarDadosSiconfi);
@@ -103,6 +123,10 @@ function configurarEventListeners() {
         mostrarSecao('secao-simulacao');
     });
     document.getElementById('nav-painel').addEventListener('click', () => mostrarSecao('secao-painel'));
+    document.getElementById('nav-limites').addEventListener('click', () => { mostrarSecao('secao-limites'); carregarSadipemLimites(); });
+    document.getElementById('btn-ver-limites').addEventListener('click', () => { mostrarSecao('secao-limites'); carregarSadipemLimites(); });
+    document.getElementById('nav-analise').addEventListener('click', () => mostrarSecao('secao-analise'));
+    document.getElementById('btn-simular-limites').addEventListener('click', () => mostrarSecao('secao-simulacao'));
     document.getElementById('btn-nova-operacao').addEventListener('click', () => {
         mostrarSecao('secao-simulacao');
         document.getElementById('secao-simulacao').scrollIntoView({behavior: 'smooth', block: 'start'});
@@ -122,11 +146,108 @@ function configurarEventListeners() {
 
 // --- COMUNICAÇÃO COM O BACKEND (PYTHON/EEL) ---
 
+let painelFiscalAtual = null;
+let consultaSadipemEmCurso = null;
+
+function adicionarLinhaFluxoCredito() {
+    const container = document.getElementById('fluxo-credito-linhas');
+    if (container.children.length >= 30) return;
+    const anoBase = Number(document.getElementById('ano').value) || new Date().getFullYear();
+    const ano = container.children.length ? Number(container.lastElementChild.dataset.ano) + 1 : anoBase;
+    const linha = document.createElement('div');
+    linha.className = 'fluxo-sim-linha';
+    linha.dataset.ano = String(ano);
+    for (const [chave, rotulo] of [
+        ['rclProjetada', 'RCL projetada (R$)'],
+        ['liberacoesNaoContratadasManual', 'Não contratadas · manual (R$)'],
+        ['liberacaoNovaOperacao', 'Nova operação · liberação (R$)']
+    ]) {
+        const label = document.createElement('label');
+        label.textContent = rotulo;
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = '0';
+        input.step = '0.01';
+        input.dataset.campo = chave;
+        input.setAttribute('aria-label', `${rotulo} em ${ano}`);
+        label.appendChild(input);
+        linha.appendChild(label);
+    }
+    const titulo = document.createElement('strong');
+    titulo.textContent = `Exercício ${ano}`;
+    linha.prepend(titulo);
+    container.appendChild(linha);
+}
+
+async function executarFluxoCredito(event) {
+    event.preventDefault();
+    const destino = document.getElementById('fluxo-credito-resultado');
+    const linhas = [...document.querySelectorAll('#fluxo-credito-linhas .fluxo-sim-linha')].map(linha => {
+        const entrada = {ano: Number(linha.dataset.ano)};
+        for (const input of linha.querySelectorAll('input')) entrada[input.dataset.campo] =
+            input.value.trim() === '' ? null : Number(input.value);
+        return entrada;
+    });
+    destino.textContent = 'Consultando o SADIPEM e calculando o cenário...';
+    try {
+        const resposta = await eel.simular_fluxo_credito_py(linhas)();
+        if (resposta.status !== 'sucesso') throw new Error(resposta.mensagem);
+        destino.replaceChildren();
+        for (const item of resposta.exercicios) {
+            const secao = document.createElement('section');
+            secao.className = 'fluxo-sim-resultado';
+            const titulo = document.createElement('h3');
+            titulo.textContent = `${item.ano} · ${item.cenario.dadosCompletos ? 'Cenário calculado com os dados informados' : 'Dados insuficientes para calcular o cenário'}`;
+            secao.appendChild(titulo);
+            for (const texto of [
+                `Liberações contratadas · SADIPEM: ${item.cenario.liberacoesContratadas == null ? 'não informadas no snapshot' : formatarMoeda(item.cenario.liberacoesContratadas)}`,
+                `Não contratadas · ${item.fonteNaoContratadas || 'sem fonte'}: ${item.cenario.liberacoesNaoContratadas == null ? 'não informadas' : formatarMoeda(item.cenario.liberacoesNaoContratadas)}`,
+                `Nova operação: ${item.cenario.liberacaoOperacaoAnalisada == null ? 'não informada' : formatarMoeda(item.cenario.liberacaoOperacaoAnalisada)}`,
+                `MGA/RCL do cenário: ${item.cenario.percentualMgaRcl == null ? 'não calculável' : formatarPercentual(item.cenario.percentualMgaRcl)}`,
+                `Margem do cenário: ${item.cenario.margemEstimada == null ? 'não calculável' : formatarMoeda(item.cenario.margemEstimada)}`,
+                `PVL de referência: ${item.snapshot?.numeroPvl || item.snapshot?.idPleito || 'não encontrado'}`
+            ]) {
+                const p = document.createElement('p');
+                p.textContent = texto;
+                secao.appendChild(p);
+            }
+            const aviso = document.createElement('p');
+            aviso.textContent = 'Cenário indicativo. A cobertura dos cronogramas públicos do SADIPEM não foi confirmada como MGA oficial completo.';
+            secao.appendChild(aviso);
+            destino.appendChild(secao);
+        }
+    } catch (error) {
+        destino.textContent = `Não foi possível calcular o cenário: ${error.message}`;
+    }
+}
+
+async function carregarSadipemLimites() {
+    if (consultaSadipemEmCurso) return consultaSadipemEmCurso;
+    if (!painelFiscalAtual?.exercicio) return;
+    consultaSadipemEmCurso = (async () => {
+        try {
+            const resposta = await eel.obter_comprometimento_sadipem_py()();
+            if (resposta.status !== 'sucesso') throw new Error(resposta.mensagem);
+            painelFiscalAtual.sadipem = resposta.sadipem;
+            renderizarVisaoFiscal(painelFiscalAtual);
+        } catch (error) {
+            console.error('Erro ao consultar SADIPEM:', error);
+            painelFiscalAtual.sadipem = {statusDadosMga: 'Unavailable', motivo: 'API_ERROR'};
+            renderizarVisaoFiscal(painelFiscalAtual);
+        } finally {
+            consultaSadipemEmCurso = null;
+        }
+    })();
+    return consultaSadipemEmCurso;
+}
+
 async function carregarPainelFiscal() {
     try {
         const resposta = await eel.obter_painel_fiscal_py()();
         if (resposta.status !== 'sucesso') throw new Error(resposta.mensagem);
+        painelFiscalAtual = resposta.painel;
         renderizarPainelFiscal(resposta.painel);
+        if (!document.getElementById('secao-limites').classList.contains('hidden')) carregarSadipemLimites();
     } catch (error) {
         console.error('Erro ao carregar painel fiscal:', error);
         document.getElementById('painel-estado-dados').textContent = 'Não foi possível carregar os dados';
@@ -141,11 +262,8 @@ function renderizarPainelFiscal(painel) {
         if (texto !== undefined) no.textContent = texto;
         return no;
     };
-    const vazio = 'Dados ainda não disponíveis';
-    const percentual = valor => valor == null ? vazio : formatarPercentual(valor);
     const dataConsulta = painel.ultima_consulta
         ? new Date(painel.ultima_consulta).toLocaleString('pt-BR') : null;
-    document.getElementById('painel-titulo').textContent = painel.ente;
     document.getElementById('painel-exercicio').textContent = painel.exercicio
         ? `Exercício dos dados: ${painel.exercicio}` : 'Exercício: não disponível';
     const periodo = painel.dtp ? `${painel.dtp.periodo}º quadrimestre de ${painel.dtp.ano} · DTP`
@@ -153,78 +271,14 @@ function renderizarPainelFiscal(painel) {
         : painel.rcl ? `${painel.rcl.periodo}º bimestre de ${painel.rcl.ano} · RCL` : null;
     document.getElementById('painel-periodo').textContent = periodo
         ? `Período mais recente exibido: ${periodo}` : 'Período: não disponível';
-    document.getElementById('painel-fonte').textContent = 'Fonte dos dados integrados: SICONFI';
+    document.getElementById('painel-fonte').textContent = painel.capag
+        ? 'Fontes: SICONFI e Tesouro Transparente' : 'Fonte: SICONFI';
     document.getElementById('painel-consulta').textContent = dataConsulta
         ? `Última consulta registrada: ${dataConsulta}` : 'Última consulta: não registrada';
     document.getElementById('painel-estado-dados').textContent = painel.dados_disponiveis === 0
         ? 'Dados fiscais não encontrados' : 'Dados fiscais publicados';
 
-    const indicadores = document.getElementById('painel-indicadores');
-    indicadores.replaceChildren();
-    const cardsDisponiveis = [
-        painel.rcl ? ['Base fiscal', 'Receita Corrente Líquida para endividamento', formatarMoeda(painel.rcl.valor),
-            'Base de referência para o cálculo de limites ligados à dívida e às operações de crédito.',
-            `${painel.rcl.periodo}º bimestre de ${painel.rcl.ano}`] : null,
-        painel.capag ? ['Capacidade de pagamento', 'CAPAG', `Nota ${painel.capag.valor}`,
-            'Classificação do Tesouro Nacional relevante para operações com garantia da União.',
-            `Publicação de ${painel.capag.ano}`] : null,
-        painel.dcl?.valor != null ? ['Endividamento atual', 'DCL / RCL', percentual(painel.dcl.valor),
-            'Mostra quanto a Dívida Consolidada Líquida representa em relação à Receita Corrente Líquida.',
-            `${painel.dcl.periodo}º quadrimestre de ${painel.dcl.ano}`] : null,
-    ].filter(Boolean);
-    for (const [categoria, nome, valor, descricao, referencia] of cardsDisponiveis) {
-        const card = criar('article', 'painel-indicador');
-        card.append(criar('span', 'painel-categoria', categoria), criar('h2', '', nome),
-            criar('strong', '', valor), criar('p', '', descricao));
-        if (nome === 'DCL / RCL') {
-            if (painel.dcl.limite != null) card.appendChild(criar('span', 'painel-card-extra', `Limite: ${percentual(painel.dcl.limite)}`));
-            if (painel.dcl.utilizacao != null) card.appendChild(criar('span', 'painel-card-extra', `Uso do limite: ${percentual(painel.dcl.utilizacao)}`));
-        }
-        if (referencia) {
-            card.appendChild(criar('span', 'painel-card-ref', referencia));
-        }
-        indicadores.appendChild(card);
-    }
-
-    const limites = document.getElementById('painel-limites');
-    limites.replaceChildren();
-    for (const [categoria, nome, descricao, dado] of [
-        ['Operações de crédito', 'MGA/RCL', 'Operações de crédito realizadas em relação à Receita Corrente Líquida.', painel.mga],
-        ['Endividamento', 'DCL/RCL', 'Estoque da dívida líquida em relação à receita do ente.', painel.dcl],
-        ['Antecipação de receita', 'ARO/RCL', 'Antecipações de receita em relação à Receita Corrente Líquida.', painel.aro],
-        ['Garantias concedidas', 'Garantias/RCL', 'Garantias concedidas pelo ente em relação à Receita Corrente Líquida.', painel.garantias],
-        ['Despesa com pessoal', 'DTP/RCL', 'Parcela da Receita Corrente Líquida comprometida com despesa total com pessoal.', painel.dtp],
-    ].filter(([, , , dado]) => dado?.valor != null)) {
-        const limite = dado.limite;
-        const linha = criar('article', 'painel-limite');
-        linha.appendChild(criar('span', 'painel-categoria', categoria));
-        const topo = criar('div', 'painel-limite-head');
-        topo.append(criar('h3', '', nome),
-            criar('strong', '', percentual(dado.valor)),
-            criar('span', `painel-situacao ${dado.situacao === 'Limite excedido' ? 'painel-situacao-falha' : ''}`,
-                dado.situacao));
-        linha.appendChild(topo);
-        linha.appendChild(criar('p', 'painel-limite-descricao', descricao));
-        const partes = [`Valor atual: ${percentual(dado.valor)}`];
-        if (limite != null) partes.push(`Limite: ${percentual(limite)}`);
-        if (dado.utilizacao != null) partes.push(`Uso do limite: ${percentual(dado.utilizacao)}`);
-        if (dado.margem != null) partes.push(`Margem: ${formatarNumeroDtp(dado.margem)} p.p.`);
-        linha.appendChild(criar('p', 'painel-limite-info', partes.join(' · ')));
-        if (dado.utilizacao == null) { limites.appendChild(linha); continue; }
-        linha.appendChild(criar('span', 'painel-progress-label', 'Percentual do limite utilizado'));
-        const trilho = criar('div', 'painel-progress-track');
-        trilho.setAttribute('role', 'progressbar');
-        trilho.setAttribute('aria-label', `${nome}: ${percentual(dado.utilizacao)} do limite utilizado`);
-        trilho.setAttribute('aria-valuenow', String(Math.max(0, Math.min(100, dado.utilizacao))));
-        trilho.setAttribute('aria-valuemin', '0');
-        trilho.setAttribute('aria-valuemax', '100');
-        const barra = criar('span', dado.situacao === 'Limite excedido' ? 'painel-progress-excedido' : '');
-        barra.style.width = `${Math.max(0, Math.min(100, dado.utilizacao))}%`;
-        trilho.appendChild(barra);
-        linha.appendChild(trilho);
-        limites.appendChild(linha);
-    }
-    document.getElementById('painel-limites-secao').classList.toggle('hidden', !limites.children.length);
+    renderizarVisaoFiscal(painel);
 
     document.getElementById('painel-contagem').textContent = dataConsulta
         ? `Última consulta registrada: ${dataConsulta}` : 'Data da última consulta não registrada.';
@@ -242,9 +296,6 @@ function renderizarPainelFiscal(painel) {
 
     const alertas = document.getElementById('painel-alertas');
     alertas.replaceChildren();
-    if (!painel.rcl) alertas.appendChild(criar('p', '', 'RCL ajustada não encontrada para o exercício disponível.'));
-    if (painel.dcl?.valor == null) alertas.appendChild(criar('p', '', 'DCL/RCL ainda não tem os dados necessários para exibição.'));
-    if (!painel.dtp) alertas.appendChild(criar('p', '', 'DTP exige um quadrimestre com pelo menos seis instituições publicadas.'));
 }
 
 async function carregarDadosIniciais() {
@@ -314,6 +365,10 @@ async function executarSimulacao(usarProjecaoServico = false) {
         
         // A nova função central de renderização
         renderizarResultados(resultado);
+        if (!modalServico && document.getElementById('tbody-resultados').children.length) {
+            document.getElementById('nav-analise').disabled = false;
+            mostrarSecao('secao-analise');
+        }
         if (modalServico) {
             const alvo = document.getElementById('servico-resultado-hipotese-2') ||
                 document.getElementById('servico-resultado-hipotese-1');
@@ -367,7 +422,8 @@ async function atualizarDadosSiconfi() {
         }
         await carregarDadosIniciais();
         await carregarPainelFiscal();
-        if (!document.getElementById('secao-simulacao').classList.contains('hidden') &&
+        if ((!document.getElementById('secao-simulacao').classList.contains('hidden') ||
+             !document.getElementById('secao-analise').classList.contains('hidden')) &&
             document.getElementById('tbody-resultados').children.length > 0) {
             await executarSimulacao();
         } else {

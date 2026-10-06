@@ -53,6 +53,15 @@ def _resumo_anexo_06(linhas, nome):
     candidatos = [r for r in linhas if trecho in _normalizar(r.conta)
                   and 'LIMITE' not in _normalizar(r.conta)
                   and '%' in _normalizar(r.coluna) and r.valor is not None]
+    if not candidatos:
+        # O código da conta preserva a identificação em importações antigas
+        # cujo rótulo textual veio com caracteres inválidos.
+        codigo = ('OPERACOESDECREDITOINTERNASEEXTERNAS' if nome == 'mga'
+                  else 'OPERACOESDECREDITOPORANTECIPACAODARECEITA')
+        candidatos = [r for r in linhas
+                      if codigo in _normalizar(getattr(r, 'cod_conta', '')).replace(' ', '')
+                      and 'LIMITE' not in _normalizar(getattr(r, 'cod_conta', ''))
+                      and '%' in _normalizar(r.coluna) and r.valor is not None]
     if len(candidatos) != 1:
         return None
     return candidatos[0].valor
@@ -96,3 +105,21 @@ def obter_indicadores_rgf(ano):
                                        'origem': 'SICONFI/RGF'}
                     break
     return resultado
+
+
+def obter_limite_mga_publicado(ano):
+    """Lê o teto monetário do Anexo 04 mais recente do exercício."""
+    codigo = 'LIMITEGERALDEFINIDOPORRESOLUCAODOSENADOFEDERALPARAASOPERACOESDECREDITOINTERNASEEXTERNAS'
+    linhas = db.session.query(RGF).filter(
+        RGF.exercicio == ano, RGF.uf == 'GO', RGF.esfera == 'E',
+        RGF.periodicidade == 'Q', RGF.co_poder == 'E',
+        RGF.anexo == 'RGF-Anexo 04', RGF.valor.isnot(None)).all()
+    for periodo in sorted({linha.periodo for linha in linhas}, reverse=True):
+        candidatos = [linha for linha in linhas if linha.periodo == periodo
+                      and _normalizar(linha.cod_conta).replace(' ', '') == codigo
+                      and _normalizar(linha.coluna) == 'VALOR' and linha.valor > 0]
+        if len(candidatos) == 1:
+            return {'valor': float(candidatos[0].valor), 'ano': ano,
+                    'periodo': periodo, 'anexo': 'RGF-Anexo 04',
+                    'origem': 'SICONFI/RGF'}
+    return None
