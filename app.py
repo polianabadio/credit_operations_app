@@ -7,6 +7,7 @@ backend (motor de regras, acesso a dados) e o frontend (JavaScript/Eel).
 
 import eel
 from src.simulador.sync_job import iniciar_atualizacao, status_atualizacao
+from src.simulador.mga_projection import obter_projecao, salvar_operacao, confirmar_cobertura, listar_memoria, avaliar_simulacao_mga
 
 
 @eel.expose
@@ -22,7 +23,7 @@ def status_atualizacao_siconfi():
 from src.simulador.rule_engine import analisar_operacao
 from src.simulador.parametros_simulacao import obter_fator_projecao, salvar_fator_projecao
 from src.simulador.painel_fiscal import obter_painel_fiscal
-from src.simulador.sadipem import obter_comprometimento_goias, simular_fluxo_goias
+from src.simulador.sadipem import obter_comprometimento_goias
 from src.simulador.data_updater import atualizar_operacoes_rreo, atualizar_operacoes_rgf
 from src.simulador.database_models import db, RREO
 from src.simulador.logger import log
@@ -150,7 +151,9 @@ def obter_fator_projecao_py():
 @eel.expose
 def obter_painel_fiscal_py():
     try:
-        return {'status': 'sucesso', 'painel': obter_painel_fiscal()}
+        painel = obter_painel_fiscal()
+        painel['fluxo_credito'] = obter_projecao(painel)
+        return {'status': 'sucesso', 'painel': painel}
     except Exception as exc:
         log.error('Erro ao obter painel fiscal.', details=str(exc), modulo='app.py')
         return {'status': 'erro', 'mensagem': 'Não foi possível carregar o painel fiscal.'}
@@ -170,7 +173,29 @@ def obter_comprometimento_sadipem_py():
 @eel.expose
 def simular_fluxo_credito_py(linhas):
     try:
-        return {'status': 'sucesso', 'exercicios': simular_fluxo_goias(linhas)}
+        return {'status': 'sucesso', 'projection': obter_projecao(obter_painel_fiscal(), linhas)}
+    except (ValueError, KeyError, TypeError) as exc:
+        return {'status': 'erro', 'mensagem': str(exc)}
+
+
+@eel.expose
+def listar_operacoes_mga_py():
+    return listar_memoria()
+
+
+@eel.expose
+def salvar_operacao_mga_py(entrada):
+    try:
+        return {'status': 'sucesso', 'id': salvar_operacao(entrada)}
+    except (ValueError, KeyError, TypeError) as exc:
+        return {'status': 'erro', 'mensagem': str(exc)}
+
+
+@eel.expose
+def confirmar_cobertura_mga_py(inicio, fim, fonte):
+    try:
+        confirmar_cobertura(inicio, fim, fonte)
+        return {'status': 'sucesso'}
     except (ValueError, KeyError, TypeError) as exc:
         return {'status': 'erro', 'mensagem': str(exc)}
 
@@ -184,16 +209,20 @@ def salvar_fator_projecao_py(valor):
 
 
 @eel.expose
-def analisar_operacao_py(ano: int, valor_requisitado: float, servico_input=None):
+def analisar_operacao_py(ano: int, valor_requisitado: float, servico_input=None, mga_input=None):
     """
     Ponto de entrada principal para executar o motor de regras e retornar a análise completa.
     """
     try:
         log.info("Recebido pedido de análise do frontend.", modulo="app.py", funcao="analisar_operacao_py", ano=ano, valor_requisitado=valor_requisitado)
         # Esta chamada agora invoca nosso orquestrador inteligente
+        projecao_mga = avaliar_simulacao_mga(ano, valor_requisitado, mga_input)
         resultado = analisar_operacao(ano, valor_requisitado, servico_input)
+        resultado['mgaProjection'] = projecao_mga
         log.success("Análise via orquestrador concluída com sucesso.")
         return resultado
+    except (ValueError, KeyError, TypeError) as exc:
+        return {'status': 'erro', 'mensagem': str(exc)}
     except Exception as e:
         log.error("Erro ao executar 'analisar_operacao'", details=str(e), modulo="app.py", funcao="analisar_operacao_py", traceback=True)
         return {"status": "erro", "mensagem": f"Ocorreu um erro crítico no backend: {e}"}

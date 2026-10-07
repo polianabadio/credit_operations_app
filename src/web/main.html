@@ -27,7 +27,6 @@
                     <button id="nav-painel" type="button">Dashboard</button>
                     <button id="nav-limites" type="button">Principais Limites</button>
                     <button id="nav-simulacao" type="button">Simulação</button>
-                    <button id="nav-analise" type="button" disabled title="Faça uma simulação para ver a análise">Análise</button>
                 </div>
                 <button id="nav-configuracoes" class="text-white bg-gradient-to-r from-cyan-400 via-cyan-500 to-cyan-600 hover:bg-gradient-to-br focus:ring-4 focus:outline-none focus:ring-cyan-300 dark:focus:ring-cyan-800 shadow-lg shadow-cyan-500/50 dark:shadow-lg dark:shadow-cyan-800/80 font-medium rounded-lg text-sm px-4 py-2 text-center">
                     <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="30" height="30" viewBox="0,0,256,256">
@@ -108,14 +107,14 @@
             <header class="simulacao-cabecalho painel-box">
                 <p class="painel-kicker">Dados da operação</p>
                 <h1 id="simulacao-titulo">Simulação de operação de crédito</h1>
-                <p>Confira o efeito do valor informado na Regra de Ouro do exercício selecionado e consulte as demais verificações disponíveis.</p>
+                <p>Informe o valor da operação e os parâmetros do contrato para calcular as verificações fiscais e o MGA/RCL na mesma simulação.</p>
                 <p class="simulacao-ressalva">Esta simulação não representa autorização ou aprovação da operação.</p>
             </header>
 
             <div class="simulacao-colunas">
                 <section class="painel-box simulacao-formulario" aria-labelledby="simulacao-dados-titulo">
                     <h2 id="simulacao-dados-titulo">Dados da nova operação</h2>
-                    <p class="painel-help">Selecione o exercício e informe o valor a considerar na Regra de Ouro atual.</p>
+                    <p class="painel-help">O valor requisitado será usado na Regra de Ouro e no cronograma da operação analisada pelo MGA/RCL.</p>
                     <form id="form-simulacao" novalidate>
                         <div class="simulacao-campos">
                             <div>
@@ -126,8 +125,18 @@
                             <div>
                                 <label for="valor-requisitado">Valor requisitado (R$)</label>
                                 <input type="text" inputmode="decimal" autocomplete="off" id="valor-requisitado" name="valor-requisitado" aria-describedby="valor-ajuda valor-erro" placeholder="R$ 0,00">
-                                <p id="valor-ajuda" class="simulacao-ajuda">Se ficar vazio, o sistema considera R$ 0,00. O valor informado entra na Regra de Ouro do exercício atual.</p>
+                                <p id="valor-ajuda" class="simulacao-ajuda">Valor total da nova operação. Preencha o valor para iniciar a simulação.</p>
                                 <p id="valor-erro" class="simulacao-erro" role="alert" hidden></p>
+                            </div>
+                            <div>
+                                <label for="fator-rcl">Multiplicador da RCL — serviço da dívida</label>
+                                <input id="fator-rcl" type="number" min="0.000000001" step="any">
+                                <p class="simulacao-ajuda">Parâmetro legado exclusivo do serviço da dívida; origem do valor salvo pendente de validação. Não é usado no MGA.</p>
+                            </div>
+                            <div>
+                                <label for="ano-fim-contrato">Ano final dos pagamentos</label>
+                                <select id="ano-fim-contrato"></select>
+                                <p class="simulacao-ajuda">Define o prazo dos pagamentos do serviço da dívida. Informe os anos de liberação no cronograma de desembolsos abaixo.</p>
                             </div>
                         </div>
                         <button type="submit" class="simulation-button"><span>Calcular impacto da operação</span><span aria-hidden="true">→</span></button>
@@ -146,21 +155,76 @@
             </div>
 
             <section class="painel-box simulacao-formulario" aria-labelledby="fluxo-sim-titulo">
-                <h2 id="fluxo-sim-titulo">Fluxo anual de operações de crédito · MGA/RCL</h2>
-                <p class="painel-help">As liberações de operações contratadas são consultadas automaticamente no SADIPEM. Informe a RCL projetada, a liberação da nova operação e, apenas quando não houver dado anual público, as liberações de operações ainda não contratadas. Campo vazio não significa zero.</p>
-                <form id="form-fluxo-credito" novalidate>
+                <h2 id="fluxo-sim-titulo">Cronograma financeiro</h2><h3>Recebimentos — liberações da nova operação</h3>
+                <p class="painel-help">Informe quanto do empréstimo será recebido em cada ano. Esses valores serão somados às liberações das outras operações e comparados com 16% da RCL projetada de cada exercício.</p>
+                <div class="mga-cadastro">
+                    <label>Base da simulação<select id="mga-escopo"><option value="inventory">Nova operação + demais operações cadastradas</option><option value="operation_only">Cenário parcial — apenas a nova operação</option></select></label>
+                    <label>Liberação do valor requisitado<select id="mga-cronograma-modo"><option value="single_year">Integral no ano de início da liberação</option><option value="annual_schedule">Conforme cronograma anual do contrato</option></select></label>
+                    <label>Ano inicial de liberação<input id="mga-ano-inicio" type="number" min="2020" max="2100"></label>
+                    <label>Ano final de liberação<input id="mga-ano-fim" type="number" min="2020" max="2100"></label>
+                    <label>Identificador/PVL da operação, se já cadastrada<input id="mga-identificador" maxlength="150" placeholder="Evita somar a mesma operação duas vezes"></label>
+                    <details class="painel-details"><summary>Parâmetro da RCL para MGA</summary>
+                        <p>MIP 2026.08.21, seção 4.2.4: taxa anual 2,031208231%, multiplicador 1,02031208231, vigente desde 22/04/2026. Média geométrica do PIB real de oito anos. Referências de outros anos exigem validação.</p>
+                        <label>Unidade<select id="mga-parametro-unidade"><option value="multiplier">Multiplicador (ex.: 1,03)</option><option value="rate">Taxa decimal (ex.: 0,03)</option><option value="percent">Taxa percentual (ex.: 3)</option></select></label>
+                        <label>Valor<input id="mga-parametro-valor" type="number" step="any" value="1.02031208231"></label>
+                        <label>Fonte da hipótese alternativa<input id="mga-parametro-fonte"></label>
+                        <label>Data-base da hipótese<input id="mga-parametro-data" type="date"></label>
+                        <p>Parâmetros alternativos são hipóteses pendentes de validação normativa.</p>
+                    </details>
+                    <p id="mga-valor-resumo" class="painel-help"></p>
+                    <p class="painel-help">Cenário parcial: considera apenas a nova operação; demais liberações não incluídas. Cadastro sem cobertura confirmada significa dados desconhecidos, não zero.</p>
                     <div id="fluxo-credito-linhas"></div>
                     <button id="fluxo-adicionar-ano" type="button" class="jornada-link">Adicionar exercício</button>
-                    <button type="submit" class="simulation-button">Calcular cenário anual</button>
-                </form>
-                <div id="fluxo-credito-resultado" aria-live="polite"></div>
+                    <p class="painel-help">Use “Calcular impacto da operação” para atualizar todos os resultados. No cronograma anual, a soma das liberações deve ser igual ao Valor requisitado.</p>
+                </div>
+                <div id="fluxo-credito-resultado" aria-live="polite">Aguardando preenchimento</div>
+                <details id="cronograma-pagamentos" class="painel-details"><summary>Pagamentos — amortização, juros e encargos</summary>
+                    <p>O prazo final dos pagamentos é independente do período de recebimentos.</p>                    <div>
+                        <h4 class="font-semibold text-gray-800">Hipótese 1 — Serviço da operação pretendida</h4>
+                        <p class="text-sm text-gray-600">Informe juros, encargos e amortização previstos. O sistema compara cada ano com 11,5% da RCL projetada e aprova a hipótese quando a média dos percentuais anuais for inferior a 11,5%.</p>
+                        <div class="servico-grid-head" aria-hidden="true"><span>Ano</span><span>Juros e encargos</span><span>Amortização</span></div>
+                        <div id="linhas-hipotese-1" class="space-y-2 mt-2"></div>
+                        <p class="servico-input-help">Cole uma coluna do Excel em qualquer campo para preencher os anos seguintes, ou duas colunas a partir de juros e encargos para preencher também a amortização.</p>
+                    </div>
+                    <div id="secao-hipotese-2" class="hidden border-t border-gray-200 pt-4">
+                        <h4 class="font-semibold text-gray-800">Hipótese 2 — Dívida prevista até dezembro de 2027</h4>
+                        <p class="text-sm text-gray-600">A Hipótese 1 não foi atendida. Informe o serviço da dívida pública previsto até 2027; a decisão também considera a média dos percentuais anuais.</p>
+                        <div class="servico-grid-head" aria-hidden="true"><span>Ano</span><span>Juros e encargos</span><span>Amortização</span></div>
+                        <div id="linhas-hipotese-2" class="space-y-2 mt-2"></div>
+                        <p class="servico-input-help">A colagem de uma ou duas colunas do Excel também funciona nesta hipótese.</p>
+                    </div>
+</details>
+                <details class="painel-details"><summary>Memória das demais operações</summary>
+                    <p>Cadastre cada operação em reais. Para editar, selecione uma operação na lista. Informe todos os anos do cronograma, inclusive os zeros conhecidos. A fonte pode ser um documento ou PVL consultado no SADIPEM.</p>
+                    <div id="mga-memoria-lista"></div>
+                    <form id="form-mga-memoria" class="mga-cadastro">
+                        <label>Identificação da operação / PVL<input name="identificador" required maxlength="150"></label>
+                        <label>Situação<select name="situacao"><option value="solicitada">Solicitada</option><option value="a_contratar">A contratar</option><option value="contratada">Contratada</option><option value="cancelada">Cancelada</option><option value="encerrada">Encerrada</option></select></label>
+                        <label>Valor total (R$)<input name="valorTotal" type="number" min="0" step="0.01" required></label>
+                        <label>Primeiro ano<input name="anoInicio" type="number" min="2020" max="2100" required></label>
+                        <label>Último ano<input name="anoFim" type="number" min="2020" max="2100" required></label>
+                        <label>Fonte / documento<input name="fonte" required maxlength="1000"></label>
+                        <label>Liberações: uma linha por ano, no formato 2026;500000.00<textarea name="cronograma" rows="5"></textarea></label>
+                        <label><input name="cronogramaCompleto" type="checkbox"> Confirmo que o cronograma está completo.</label>
+                        <button type="submit" class="simulation-button">Salvar operação</button>
+                    </form>
+                    <form id="form-mga-cobertura" class="mga-cadastro">
+                        <p>Confirme a cobertura somente após conferir todas as operações relevantes do ente. Um inventário vazio confirmado representa ausência conhecida de liberações. Cada alteração de cadastro exige nova confirmação.</p>
+                        <label>De<input name="inicio" type="number" min="2020" max="2100" required></label>
+                        <label>Até<input name="fim" type="number" min="2020" max="2100" required></label>
+                        <label>Fonte da conferência<input name="fonte" required maxlength="1000"></label>
+                        <label><input type="checkbox" required> Confirmo que todas as operações relevantes nesses exercícios estão cadastradas.</label>
+                        <button type="submit" class="simulation-button">Confirmar cobertura</button>
+                    </form>
+                    <p id="mga-memoria-mensagem" aria-live="polite"></p>
+                </details>
             </section>
 
-        </section>
-        <section id="secao-analise" class="simulacao-pagina hidden" aria-labelledby="simulacao-resultados-titulo">
             <section id="tabela-resultados-container" class="painel-box simulacao-resultados" style="display: none;" aria-labelledby="simulacao-resultados-titulo">
                 <p class="painel-kicker">Resultado da simulação</p>
                 <h2 id="simulacao-resultados-titulo">Verificações disponíveis</h2>
+                <p id="simulacao-atualidade" role="status"></p>
+                <button id="btn-relatorio-simulacao" type="button" class="jornada-link" disabled>Baixar relatório da simulação</button>
                 <p class="painel-help">Os resultados vêm da memória de cálculo de cada regra. Consulte “Ver Detalhes” para conferir a composição e as fontes.</p>
                 <div class="overflow-x-auto">
                     <table class="min-w-full bg-white">
@@ -298,30 +362,13 @@
                                 <p class="text-sm text-gray-600">O fator é aplicado somente à RCL projetada dos exercícios futuros. O último valor salvo será usado nas próximas simulações.</p>
                                 <p class="text-sm text-gray-600">Ano-base: exercício anterior ao ano selecionado. RCL projetada = RCL de referência × fator<sup>n</sup>, em que n começa em 1. Limite futuro = RCL projetada × 11,5%.</p>
                                 <p id="servico-fator-fonte" class="text-sm text-gray-600"></p>
-                                <label class="text-sm font-medium text-gray-700">Fator de projeção da RCL
-                                    <input id="fator-rcl" type="number" min="0.000000001" step="any" class="mt-1 block rounded-md border border-gray-300 px-3 py-2">
-                                </label>
+                                <p class="text-sm text-gray-600">O fator é informado em Dados da nova operação, na tela de Simulação.</p>
                             </div>
                         </details>
                     </div>
-                    <label class="block text-sm font-medium text-gray-700">Ano final do contrato
-                        <select id="ano-fim-contrato" class="mt-1 block w-full md:w-1/2 rounded-md border border-gray-300 px-3 py-2"></select>
-                    </label>
+                    <p class="text-sm text-gray-600">O ano final do contrato é informado em Dados da nova operação.</p>
                     <p id="servico-anos-contexto" class="text-sm text-gray-600"></p>
-                    <div>
-                        <h4 class="font-semibold text-gray-800">Hipótese 1 — Serviço da operação pretendida</h4>
-                        <p class="text-sm text-gray-600">Informe juros, encargos e amortização previstos. O sistema compara cada ano com 11,5% da RCL projetada e aprova a hipótese quando a média dos percentuais anuais for inferior a 11,5%.</p>
-                        <div class="servico-grid-head" aria-hidden="true"><span>Ano</span><span>Juros e encargos</span><span>Amortização</span></div>
-                        <div id="linhas-hipotese-1" class="space-y-2 mt-2"></div>
-                        <p class="servico-input-help">Cole uma coluna do Excel em qualquer campo para preencher os anos seguintes, ou duas colunas a partir de juros e encargos para preencher também a amortização.</p>
-                    </div>
-                    <div id="secao-hipotese-2" class="hidden border-t border-gray-200 pt-4">
-                        <h4 class="font-semibold text-gray-800">Hipótese 2 — Dívida prevista até dezembro de 2027</h4>
-                        <p class="text-sm text-gray-600">A Hipótese 1 não foi atendida. Informe o serviço da dívida pública previsto até 2027; a decisão também considera a média dos percentuais anuais.</p>
-                        <div class="servico-grid-head" aria-hidden="true"><span>Ano</span><span>Juros e encargos</span><span>Amortização</span></div>
-                        <div id="linhas-hipotese-2" class="space-y-2 mt-2"></div>
-                        <p class="servico-input-help">A colagem de uma ou duas colunas do Excel também funciona nesta hipótese.</p>
-                    </div>
+<button type="button" class="jornada-link" onclick="editarCronogramaFinanceiro()">Editar pagamentos no cronograma financeiro</button>
                     <button id="btn-recalcular-servico" type="button" class="px-5 py-2 bg-green-700 text-white font-medium rounded-lg hover:bg-green-800">Calcular projeção</button>
                 </section>
                 <div id="servico-resultados" class="hidden mt-5"></div>

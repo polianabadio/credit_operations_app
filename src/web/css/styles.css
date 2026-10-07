@@ -77,7 +77,7 @@ body > nav { border-bottom: 1px solid #dce7df; box-shadow: 0 2px 12px #17362b05;
 #navbar-default .jornada-menu button { min-height: 38px; padding: 8px 12px; border: 0; color: #345d42; background: transparent; font-size: 13px; }
 #navbar-default .jornada-menu #nav-painel, #navbar-default .jornada-menu #nav-simulacao { background: transparent; border: 0; color: #345d42; }
 #navbar-default #nav-painel.ativo, #navbar-default #nav-limites.ativo,
-#navbar-default #nav-simulacao.ativo, #navbar-default #nav-analise.ativo { background: #fff; color: var(--brand-dark); box-shadow: 0 2px 8px #17362b13; }
+#navbar-default #nav-simulacao.ativo { background: #fff; color: var(--brand-dark); box-shadow: 0 2px 8px #17362b13; }
 #navbar-default .jornada-menu button:disabled { opacity: .48; cursor: not-allowed; }
 #navbar-default button.ativo:not(.jornada-menu button) { outline: 2px solid #a8d4b8; }
 #nav-configuracoes svg { width: 23px; height: 23px; }
@@ -501,10 +501,24 @@ button[aria-busy="true"] { cursor: progress; opacity: .88; }
 .fluxo-sim-linha { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding:14px 0; border-bottom:1px solid #dce5df; }
 .fluxo-sim-linha label { display:grid; gap:5px; font-size:13px; color:#263d34; }
 .fluxo-sim-linha input { width:100%; border:1px solid #cbd9d0; border-radius:7px; padding:9px; background:#fff; }
-#form-fluxo-credito { display:grid; gap:14px; }
 #fluxo-credito-resultado { margin-top:16px; }
+.resultados-desatualizados { opacity: .65; }
+#simulacao-atualidade { color: #775019; margin: 12px 0; }
+.mga-status { display: inline-block; padding: 4px 8px; background: #eef3f1; border-radius: 6px; color: #164237; white-space: normal; }
+#cronograma-pagamentos { margin-top: 18px; }
 .fluxo-sim-resultado { padding:12px 0; border-top:1px solid #dce5df; }
 @media (max-width:800px) { .fluxo-sim-linha { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 .fluxo-dados-pvl { margin:12px 0; padding:12px 14px; border:1px solid #dce5df; border-radius:8px; background:#fff; }
 .fluxo-dados-pvl p { margin:6px 0 0; }
 .fluxo-historico { background:#f6f8f6; }
+/* Projeção anual MGA e cadastro da memória. */
+.mga-tabela-rolagem { overflow-x: auto; width: 100%; margin: 1rem 0; }
+.mga-tabela { border-collapse: collapse; min-width: 960px; width: 100%; }
+.mga-tabela th, .mga-tabela td { padding: .7rem; border-bottom: 1px solid #d1d5db; text-align: left; }
+.mga-tabela th { background: #f3f4f6; }
+.mga-ano-critico { background: #fff3cd; font-weight: 600; }
+.mga-cadastro { display: grid; gap: .8rem; margin: 1rem 0; }
+.mga-cadastro label { display: grid; gap: .3rem; }
+.mga-cadastro input, .mga-cadastro select, .mga-cadastro textarea { max-width: 100%; padding: .5rem; border: 1px solid #9ca3af; border-radius: .3rem; }
+.mga-projecao { min-width: 0; max-width: 100%; }
+.simulacao-pagina > .simulacao-formulario, #fluxo-credito-resultado { min-width: 0; }

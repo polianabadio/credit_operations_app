@@ -26,14 +26,23 @@ Primeira_Etapa:
   - Limite_16_RCL_Estimada:
       validacao:
         true:
-          descricao: (Receitas das Operações de Crédito + Receitas de Crédito Solicitadas) ≤ 16% da RCL Estimada
+          descricao: Em cada exercício, liberações da nova operação + demais liberações incluídas ≤ 16% da RCL projetada; conclusão depende de cronogramas e fontes completos
           proximo_passo: Prosseguir para a Regra do Dispêndio
         false:
-          descricao: (Receitas das Operações de Crédito + Receitas de Crédito Solicitadas) > 16% da RCL Estimada
+          descricao: Liberações anuais incluídas > 16% da RCL projetada em pelo menos um exercício
           proximo_passo: Operação de Crédito Negada
       banco_de_dados: [SICONFI]
       base_normativa: Art 7º, Inciso I, da RSF 43/2001, Pag 80 e 81 do MIP
-      objetivo: O limite do MGA visa a reduzir a receita total de operações de crédito por meio de endividamento em um ano.
+      objetivo: Comparar o montante anual de liberações sujeito ao limite geral com 16% da RCL projetada, em todos os exercícios relevantes.
+      projecao_rcl:
+        fonte: https://www.tesourotransparente.gov.br/mip
+        edicao: "2026.08.21"
+        vigencia_inicial: "2026-04-22"
+        taxa_decimal: "0.02031208231"
+        multiplicador: "1.02031208231"
+        primeiro_ano: RCL base × multiplicador^(meses até dezembro / 12)
+        anos_seguintes: RCL ano anterior × multiplicador
+        observacao: Dezembro do exercício anterior implica 12 meses; dezembro do próprio exercício já representa seu fechamento. Hipóteses alternativas e referências históricas exigem validação.
 
   - Regra_do_Servico_da_Divida_115_RCL_Estimada:
       validacao:

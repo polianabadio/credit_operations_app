@@ -1,4 +1,4 @@
-﻿/**
+/**
  * JavaScript principal para comunicação com Eel e renderização da interface.
  * Simulador de Operações de Crédito v2 - Refatorado
  */
@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     initializeMonitoringComponent();
     mostrarSecao('secao-painel');
     await Promise.allSettled([carregarDadosIniciais(), carregarPainelFiscal()]);
-    adicionarLinhaFluxoCredito();
+    sincronizarCronogramaMga();
     atualizarDadosSiconfi();
 });
 
@@ -41,13 +41,13 @@ function recuperarConexaoBackend() {
 
 // --- LÓGICA DE NAVEGAÇÃO ENTRE SEÇÕES ---
 function mostrarSecao(nomeSecao) {
-    for (const id of ['secao-painel', 'secao-limites', 'secao-simulacao', 'secao-analise', 'secao-configuracoes']) {
+    for (const id of ['secao-painel', 'secao-limites', 'secao-simulacao', 'secao-configuracoes']) {
         document.getElementById(id).classList.add('hidden');
     }
     const secaoParaMostrar = document.getElementById(nomeSecao);
     if (secaoParaMostrar) secaoParaMostrar.classList.remove('hidden');
     const navegacao = {'secao-painel': 'nav-painel', 'secao-limites': 'nav-limites',
-        'secao-simulacao': 'nav-simulacao', 'secao-analise': 'nav-analise',
+        'secao-simulacao': 'nav-simulacao',
         'secao-configuracoes': 'nav-configuracoes'};
     for (const id of Object.values(navegacao)) {
         const botao = document.getElementById(id);
@@ -67,6 +67,7 @@ function configurarEventListeners() {
         const erro = document.getElementById('valor-erro');
         erro.hidden = true;
         erro.textContent = '';
+        sincronizarCronogramaMga();
     });
     campoValorRequisitado.addEventListener('blur', () => {
         try {
@@ -85,8 +86,8 @@ function configurarEventListeners() {
         e.preventDefault();
         executarSimulacao();
     });
-    document.getElementById('ano').addEventListener('change', montarLinhasServico);
-    document.getElementById('ano-fim-contrato').addEventListener('change', montarLinhasServico);
+    document.getElementById('ano').addEventListener('change', () => { montarLinhasServico(); sincronizarCronogramaMga(true); });
+    document.getElementById('ano-fim-contrato').addEventListener('change', () => { montarLinhasServico(); marcarSimulacaoDesatualizada(); });
     document.getElementById('fator-rcl').addEventListener('change', async (e) => {
         const resposta = await eel.salvar_fator_projecao_py(e.target.value)();
         if (resposta.status === 'sucesso') {
@@ -97,7 +98,17 @@ function configurarEventListeners() {
     });
     document.getElementById('btn-recalcular-servico').addEventListener('click', () => executarSimulacao(true));
     document.getElementById('fluxo-adicionar-ano').addEventListener('click', adicionarLinhaFluxoCredito);
-    document.getElementById('form-fluxo-credito').addEventListener('submit', executarFluxoCredito);
+    document.getElementById('mga-cronograma-modo').addEventListener('change', () => {
+        document.getElementById('fluxo-credito-linhas').replaceChildren(); sincronizarCronogramaMga();
+    });
+    document.getElementById('mga-escopo').addEventListener('change', () => sincronizarCronogramaMga());
+
+    for (const id of ['mga-ano-inicio', 'mga-ano-fim']) document.getElementById(id).addEventListener('change', () => {
+        document.getElementById('fluxo-credito-linhas').replaceChildren(); sincronizarCronogramaMga();
+    });
+    document.getElementById('secao-simulacao').addEventListener('input', marcarSimulacaoDesatualizada);
+    document.getElementById('secao-simulacao').addEventListener('change', marcarSimulacaoDesatualizada);
+    document.getElementById('btn-relatorio-simulacao').addEventListener('click', baixarRelatorioSimulacao);
 
     // Botão para atualizar dados da API Siconfi
     document.getElementById('btn-atualizar').addEventListener('click', atualizarDadosSiconfi);
@@ -125,7 +136,6 @@ function configurarEventListeners() {
     document.getElementById('nav-painel').addEventListener('click', () => mostrarSecao('secao-painel'));
     document.getElementById('nav-limites').addEventListener('click', () => { mostrarSecao('secao-limites'); carregarSadipemLimites(); });
     document.getElementById('btn-ver-limites').addEventListener('click', () => { mostrarSecao('secao-limites'); carregarSadipemLimites(); });
-    document.getElementById('nav-analise').addEventListener('click', () => mostrarSecao('secao-analise'));
     document.getElementById('btn-simular-limites').addEventListener('click', () => mostrarSecao('secao-simulacao'));
     document.getElementById('btn-nova-operacao').addEventListener('click', () => {
         mostrarSecao('secao-simulacao');
@@ -147,19 +157,122 @@ function configurarEventListeners() {
 // --- COMUNICAÇÃO COM O BACKEND (PYTHON/EEL) ---
 
 let painelFiscalAtual = null;
+let resultadoSimulacaoAtual = null;
+let revisaoSimulacao = 0;
+let resultadoDesatualizado = false;
 let consultaSadipemEmCurso = null;
+
+function sincronizarCronogramaMga(reiniciar = false) {
+    const container = document.getElementById('fluxo-credito-linhas');
+    const integral = document.getElementById('mga-cronograma-modo').value === 'single_year';
+    const referencia = document.getElementById('ano').value;
+    const inicio = document.getElementById('mga-ano-inicio');
+    const fim = document.getElementById('mga-ano-fim');
+    if (!inicio.value || reiniciar) inicio.value = referencia;
+    if (!fim.value || reiniciar || integral) fim.value = inicio.value;
+    fim.disabled = integral;
+    if (reiniciar || integral) container.replaceChildren();
+    if (!container.children.length) {
+        const inicial = Number(inicio.value), final = Number(fim.value);
+        for (let a = inicial; a <= final && container.children.length < 81; a++) adicionarLinhaFluxoCredito();
+    }
+    let total = null;
+    try { const texto = document.getElementById('valor-requisitado').value.trim(); total = texto ? lerValorRequisitado(texto).numero : null; }
+    catch (_) { /* O formulário principal apresenta o erro de valor. */ }
+    for (const input of container.querySelectorAll('input')) input.readOnly = integral;
+    if (integral) container.querySelector('input').value = total == null ? '' : String(total);
+    document.getElementById('fluxo-adicionar-ano').hidden = integral;
+    document.getElementById('mga-valor-resumo').textContent = `Valor requisitado compartilhado: ${total == null ? 'Aguardando preenchimento' : formatarMoeda(total)}. ${integral ? 'Liberação integral no ano selecionado.' : 'Informe os desembolsos previstos no contrato.'}`;
+    marcarSimulacaoDesatualizada();
+}
+
+function obterEntradaMga() {
+    return {scope: document.getElementById('mga-escopo').value,
+        mode: document.getElementById('mga-cronograma-modo').value,
+        releaseStart: Number(document.getElementById('mga-ano-inicio').value),
+        releaseEnd: Number(document.getElementById('mga-ano-fim').value),
+        operationIdentifier: document.getElementById('mga-identificador').value.trim() || null,
+        projectionParameter: {value: document.getElementById('mga-parametro-valor').value,
+            unit: document.getElementById('mga-parametro-unidade').value,
+            source: document.getElementById('mga-parametro-fonte').value,
+            date: document.getElementById('mga-parametro-data').value},
+        rows: [...document.querySelectorAll('#fluxo-credito-linhas .fluxo-sim-linha')].map(linha => ({
+            ano: Number(linha.dataset.ano),
+            liberacaoNovaOperacao: linha.querySelector('input').value.trim() === '' ? null : Number(linha.querySelector('input').value)
+        }))};
+}
+
+async function carregarMemoriaMga() {
+    const destino = document.getElementById('mga-memoria-lista');
+    try {
+        const operacoes = await eel.listar_operacoes_mga_py()();
+        destino.replaceChildren();
+        for (const op of operacoes) {
+            const botao = document.createElement('button');
+            botao.type = 'button';
+            botao.className = 'jornada-link';
+            botao.textContent = `${op.identificador} · ${op.situacao} · ${op.anoInicio}–${op.anoFim} · Editar`;
+            botao.addEventListener('click', () => {
+                const formulario = document.getElementById('form-mga-memoria');
+                for (const campo of ['identificador', 'situacao', 'valorTotal', 'anoInicio', 'anoFim', 'fonte']) formulario.elements[campo].value = op[campo];
+                formulario.elements.cronogramaCompleto.checked = op.cronogramaCompleto;
+                formulario.elements.cronograma.value = op.liberacoes.map(l => `${l.ano};${l.valor}`).join('\n');
+            });
+            destino.appendChild(botao);
+        }
+        if (!operacoes.length) destino.textContent = 'Nenhuma operação cadastrada; a cobertura precisa ser conferida.';
+    } catch (error) {
+        destino.textContent = `Não foi possível carregar a memória: ${error.message}`;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    carregarMemoriaMga();
+    const mensagem = document.getElementById('mga-memoria-mensagem');
+    document.getElementById('form-mga-memoria').addEventListener('submit', async event => {
+        event.preventDefault();
+        const form = event.target;
+        try {
+            const entrada = Object.fromEntries(new FormData(form));
+            entrada.anoInicio = Number(entrada.anoInicio);
+            entrada.anoFim = Number(entrada.anoFim);
+            entrada.valorTotal = Number(entrada.valorTotal);
+            entrada.cronogramaCompleto = form.elements.cronogramaCompleto.checked;
+            entrada.liberacoes = entrada.cronograma.trim() === '' ? [] : entrada.cronograma.trim().split(/\r?\n/).map(linha => {
+                const campos = linha.split(';');
+                if (campos.length !== 2 || campos.some(c => c.trim() === '')) throw new Error('Use ano;valor, com ponto para decimais.');
+                return {ano: Number(campos[0]), valor: Number(campos[1])};
+            });
+            const resposta = await eel.salvar_operacao_mga_py(entrada)();
+            if (resposta.status !== 'sucesso') throw new Error(resposta.mensagem);
+            mensagem.textContent = 'Operação salva. Confira e confirme novamente a cobertura do inventário.';
+            marcarSimulacaoDesatualizada();
+            await carregarMemoriaMga();
+            await carregarPainelFiscal();
+        } catch (error) { mensagem.textContent = error.message; }
+    });
+    document.getElementById('form-mga-cobertura').addEventListener('submit', async event => {
+        event.preventDefault();
+        const form = event.target;
+        try {
+            const resposta = await eel.confirmar_cobertura_mga_py(Number(form.elements.inicio.value), Number(form.elements.fim.value), form.elements.fonte.value)();
+            if (resposta.status !== 'sucesso') throw new Error(resposta.mensagem);
+            mensagem.textContent = 'Cobertura confirmada. Recalcule a simulação para usar o inventário atualizado.';
+            marcarSimulacaoDesatualizada();
+            await carregarPainelFiscal();
+        } catch (error) { mensagem.textContent = error.message; }
+    });
+});
 
 function adicionarLinhaFluxoCredito() {
     const container = document.getElementById('fluxo-credito-linhas');
-    if (container.children.length >= 30) return;
-    const anoBase = Number(document.getElementById('ano').value) || new Date().getFullYear();
+    if (container.children.length >= 81) return;
+    const anoBase = Number(document.getElementById('mga-ano-inicio').value) || Number(document.getElementById('ano').value);
     const ano = container.children.length ? Number(container.lastElementChild.dataset.ano) + 1 : anoBase;
     const linha = document.createElement('div');
     linha.className = 'fluxo-sim-linha';
     linha.dataset.ano = String(ano);
     for (const [chave, rotulo] of [
-        ['rclProjetada', 'RCL projetada (R$)'],
-        ['liberacoesNaoContratadasManual', 'Não contratadas · manual (R$)'],
         ['liberacaoNovaOperacao', 'Nova operação · liberação (R$)']
     ]) {
         const label = document.createElement('label');
@@ -169,6 +282,9 @@ function adicionarLinhaFluxoCredito() {
         input.min = '0';
         input.step = '0.01';
         input.dataset.campo = chave;
+        input.addEventListener('input', () => {
+            marcarSimulacaoDesatualizada();
+        });
         input.setAttribute('aria-label', `${rotulo} em ${ano}`);
         label.appendChild(input);
         linha.appendChild(label);
@@ -177,48 +293,8 @@ function adicionarLinhaFluxoCredito() {
     titulo.textContent = `Exercício ${ano}`;
     linha.prepend(titulo);
     container.appendChild(linha);
-}
-
-async function executarFluxoCredito(event) {
-    event.preventDefault();
-    const destino = document.getElementById('fluxo-credito-resultado');
-    const linhas = [...document.querySelectorAll('#fluxo-credito-linhas .fluxo-sim-linha')].map(linha => {
-        const entrada = {ano: Number(linha.dataset.ano)};
-        for (const input of linha.querySelectorAll('input')) entrada[input.dataset.campo] =
-            input.value.trim() === '' ? null : Number(input.value);
-        return entrada;
-    });
-    destino.textContent = 'Consultando o SADIPEM e calculando o cenário...';
-    try {
-        const resposta = await eel.simular_fluxo_credito_py(linhas)();
-        if (resposta.status !== 'sucesso') throw new Error(resposta.mensagem);
-        destino.replaceChildren();
-        for (const item of resposta.exercicios) {
-            const secao = document.createElement('section');
-            secao.className = 'fluxo-sim-resultado';
-            const titulo = document.createElement('h3');
-            titulo.textContent = `${item.ano} · ${item.cenario.dadosCompletos ? 'Cenário calculado com os dados informados' : 'Dados insuficientes para calcular o cenário'}`;
-            secao.appendChild(titulo);
-            for (const texto of [
-                `Liberações contratadas · SADIPEM: ${item.cenario.liberacoesContratadas == null ? 'não informadas no snapshot' : formatarMoeda(item.cenario.liberacoesContratadas)}`,
-                `Não contratadas · ${item.fonteNaoContratadas || 'sem fonte'}: ${item.cenario.liberacoesNaoContratadas == null ? 'não informadas' : formatarMoeda(item.cenario.liberacoesNaoContratadas)}`,
-                `Nova operação: ${item.cenario.liberacaoOperacaoAnalisada == null ? 'não informada' : formatarMoeda(item.cenario.liberacaoOperacaoAnalisada)}`,
-                `MGA/RCL do cenário: ${item.cenario.percentualMgaRcl == null ? 'não calculável' : formatarPercentual(item.cenario.percentualMgaRcl)}`,
-                `Margem do cenário: ${item.cenario.margemEstimada == null ? 'não calculável' : formatarMoeda(item.cenario.margemEstimada)}`,
-                `PVL de referência: ${item.snapshot?.numeroPvl || item.snapshot?.idPleito || 'não encontrado'}`
-            ]) {
-                const p = document.createElement('p');
-                p.textContent = texto;
-                secao.appendChild(p);
-            }
-            const aviso = document.createElement('p');
-            aviso.textContent = 'Cenário indicativo. A cobertura dos cronogramas públicos do SADIPEM não foi confirmada como MGA oficial completo.';
-            secao.appendChild(aviso);
-            destino.appendChild(secao);
-        }
-    } catch (error) {
-        destino.textContent = `Não foi possível calcular o cenário: ${error.message}`;
-    }
+    document.getElementById('mga-ano-fim').value = ano;
+    marcarSimulacaoDesatualizada();
 }
 
 async function carregarSadipemLimites() {
@@ -320,6 +396,72 @@ async function carregarDadosIniciais() {
     }
 }
 
+function marcarSimulacaoDesatualizada() {
+    if (resultadoSimulacaoAtual && !resultadoDesatualizado && resultadoSimulacaoAtual.assinatura === assinaturaEntradasSimulacao()) return;
+    revisaoSimulacao++;
+    if (resultadoSimulacaoAtual) {
+        resultadoDesatualizado = true;
+        document.getElementById('simulacao-atualidade').textContent = 'Resultados desatualizados — recalcule a simulação.';
+        document.getElementById('tbody-resultados').classList.add('resultados-desatualizados');
+        document.getElementById('fluxo-credito-resultado').textContent = 'Resultados desatualizados';
+    } else document.getElementById('fluxo-credito-resultado').textContent = 'Aguardando preenchimento';
+    document.getElementById('btn-relatorio-simulacao').disabled = true;
+}
+
+function assinaturaEntradasSimulacao() {
+    return JSON.stringify([...document.querySelectorAll('#secao-simulacao input, #secao-simulacao select, #secao-simulacao textarea')]
+        .map(campo => [campo.id || campo.name || campo.getAttribute('aria-label'), campo.value, campo.type === 'checkbox' ? campo.checked : null]));
+}
+
+function editarCronogramaFinanceiro() {
+    esconderModal(); mostrarSecao('secao-simulacao');
+    document.getElementById('cronograma-pagamentos').open = true;
+    document.getElementById('fluxo-sim-titulo').scrollIntoView({behavior:'smooth'});
+}
+
+function criarRegraMga(projecao) {
+    return {tipo:'mga', nome:'Liberações de crédito — limite de 16% da RCL',
+        status:projecao.verificationStatus || projecao.globalStatus,
+        descricao:projecao.maxMgaRcl != null
+            ? `Maior comprometimento: ${formatarPercentual(projecao.maxMgaRcl * 100)} em ${projecao.criticalYear}, limite de 16%. ${projecao.message || ''}`
+            : projecao.message || 'Informe as liberações das demais operações para concluir a verificação.',
+        base_normativa:'RSF 43/2001, art. 7º, I, §§ 1º e 6º; MIP 2026.08.21',
+        proximo_passo:'Conferir fontes, cobertura e demais verificações.',
+        objetivo:'Comparar as liberações anuais incluídas no cálculo com 16% da RCL projetada.',
+        dados_calculados:projecao};
+}
+
+function baixarRelatorioSimulacao() {
+    if (!resultadoSimulacaoAtual || resultadoDesatualizado) return;
+    const relatorio = {titulo:'Relatório da simulação de operação de crédito',
+        geradoEm:new Date().toISOString(), calculadoEm:resultadoSimulacaoAtual.calculadoEm,
+        entradas:resultadoSimulacaoAtual.entradas, resultados:resultadoSimulacaoAtual.resultado};
+    const documento = document.implementation.createHTMLDocument(relatorio.titulo);
+    documento.documentElement.lang = 'pt-BR';
+    const charset = documento.createElement('meta'); charset.setAttribute('charset', 'utf-8'); documento.head.prepend(charset);
+    const estilo = documento.createElement('style');
+    estilo.textContent = 'body{font:15px Arial,sans-serif;margin:30px;color:#17382f}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #ccc;padding:8px;text-align:left}pre{white-space:pre-wrap;overflow-wrap:anywhere}section{margin:24px 0}a{color:#006b47}progress{display:none}@media print{body{margin:10px}details{display:block}}';
+    documento.head.appendChild(estilo);
+    documento.body.appendChild(elementoFiscal('h1', '', relatorio.titulo));
+    documento.body.appendChild(elementoFiscal('p', '', `Calculado em ${relatorio.calculadoEm}; ano de referência ${relatorio.entradas.ano}; valor requisitado ${formatarMoeda(relatorio.entradas.valorRequisitado)}.`));
+    for (const regra of relatorio.resultados.regras_ordenadas || []) {
+        const secao = elementoFiscal('section');
+        secao.append(elementoFiscal('h2', '', regra.nome), elementoFiscal('p', '', `${regra.status}: ${regra.descricao}`));
+        const memoria = elementoFiscal('details'); memoria.appendChild(elementoFiscal('summary', '', 'Memória desta verificação'));
+        memoria.appendChild(elementoFiscal('pre', '', JSON.stringify(regra, null, 2))); secao.appendChild(memoria);
+        documento.body.appendChild(secao);
+    }
+    documento.body.appendChild(elementoFiscal('h2', '', 'Liberações de crédito — limite de 16% da RCL'));
+    documento.body.appendChild(criarTabelaMga(relatorio.resultados.mgaProjection));
+    const dados = elementoFiscal('details'); dados.appendChild(elementoFiscal('summary', '', 'Entradas e resultados completos do cálculo'));
+    const memoria = elementoFiscal('pre', '', JSON.stringify(relatorio, null, 2)); memoria.id = 'memoria-relatorio'; dados.appendChild(memoria);
+    documento.body.appendChild(dados);
+    const blob = new Blob(['<!DOCTYPE html>' + documento.documentElement.outerHTML], {type:'text/html;charset=utf-8'});
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob);
+    link.download = 'relatorio-simulacao.html'; link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
 async function executarSimulacao(usarProjecaoServico = false) {
     const ano = parseInt(document.getElementById('ano').value);
     if (!Number.isInteger(ano)) {
@@ -329,6 +471,7 @@ async function executarSimulacao(usarProjecaoServico = false) {
     }
     let valorRequisitado;
     try {
+        if (!document.getElementById('valor-requisitado').value.trim()) throw new Error('Aguardando preenchimento: informe o Valor requisitado.');
         valorRequisitado = lerValorRequisitado(document.getElementById('valor-requisitado').value).numero;
     } catch (error) {
         const campo = document.getElementById('valor-requisitado');
@@ -352,23 +495,30 @@ async function executarSimulacao(usarProjecaoServico = false) {
     mostrarCarregamento(true, botaoCarregamento);
 
     try {
-        const entradaServico = !modalServico ? null : obterEntradaServico();
-        if (entradaServico) {
-            const salvo = await eel.salvar_fator_projecao_py(entradaServico.fator)();
-            if (salvo.status !== 'sucesso') throw new Error(salvo.mensagem);
-            entradaServico.fator = salvo.fator;
-        }
-        const resultado = await eel.analisar_operacao_py(ano, valorRequisitado, entradaServico)();
+        const parametrosServico = obterEntradaServico();
+        const temFluxoServico = [...document.querySelectorAll('#linhas-hipotese-1 input, #linhas-hipotese-2 input')].some(input => input.value.trim() !== '');
+        const entradaServico = modalServico || temFluxoServico ? parametrosServico : null;
+        const salvo = await eel.salvar_fator_projecao_py(document.getElementById('fator-rcl').value)();
+        if (salvo.status !== 'sucesso') throw new Error(salvo.mensagem);
+        if (entradaServico) entradaServico.fator = salvo.fator;
+        const entradaMga = obterEntradaMga();
+        const revisao = revisaoSimulacao;
+        const resultado = await eel.analisar_operacao_py(ano, valorRequisitado, entradaServico, entradaMga)();
+        if (revisao !== revisaoSimulacao) { mostrarMensagem('As entradas mudaram durante o cálculo. Recalcule a simulação.', 'warning'); return; }
         console.log("Resultado da análise recebido:", resultado);
 
-        if (resultado.status !== 'Análise completa.') throw new Error('Não foi possível concluir a simulação. Verifique os dados informados ou tente novamente.');
+        if (resultado.status !== 'Análise completa.') throw new Error(resultado.mensagem || 'Não foi possível concluir a simulação. Verifique os dados informados ou tente novamente.');
         
-        // A nova função central de renderização
+        resultadoSimulacaoAtual = {calculadoEm:new Date().toISOString(), assinatura:assinaturaEntradasSimulacao(),
+            entradas:{ano, valorRequisitado, servico:entradaServico, mga:entradaMga}, resultado};
+        resultadoDesatualizado = false;
+        document.getElementById('simulacao-atualidade').textContent = 'Resultados atualizados';
+        document.getElementById('tbody-resultados').classList.remove('resultados-desatualizados');
+        document.getElementById('btn-relatorio-simulacao').disabled = false;
         renderizarResultados(resultado);
-        if (!modalServico && document.getElementById('tbody-resultados').children.length) {
-            document.getElementById('nav-analise').disabled = false;
-            mostrarSecao('secao-analise');
-        }
+        const destinoMga = document.getElementById('fluxo-credito-resultado');
+        destinoMga.textContent = 'Confira Liberações de crédito na lista de verificações abaixo.';
+        if (!modalServico) mostrarSecao('secao-simulacao');
         if (modalServico) {
             const alvo = document.getElementById('servico-resultado-hipotese-2') ||
                 document.getElementById('servico-resultado-hipotese-1');
@@ -391,7 +541,7 @@ async function executarSimulacao(usarProjecaoServico = false) {
 
     } catch (error) {
         console.error('Erro ao executar simulação:', error);
-        mostrarMensagem('Não foi possível concluir a simulação. Verifique os dados informados ou tente novamente.', 'error');
+        mostrarMensagem(error.message || 'Não foi possível concluir a simulação. Verifique os dados informados ou tente novamente.', 'error');
     } finally {
         mostrarCarregamento(false, botaoCarregamento);
     }
@@ -422,8 +572,7 @@ async function atualizarDadosSiconfi() {
         }
         await carregarDadosIniciais();
         await carregarPainelFiscal();
-        if ((!document.getElementById('secao-simulacao').classList.contains('hidden') ||
-             !document.getElementById('secao-analise').classList.contains('hidden')) &&
+        if (!document.getElementById('secao-simulacao').classList.contains('hidden') &&
             document.getElementById('tbody-resultados').children.length > 0) {
             await executarSimulacao();
         } else {
@@ -597,11 +746,12 @@ function renderizarResultados(resultado) {
     
     tbody.innerHTML = ''; // Limpa resultados anteriores
     
-    const todasAsRegras = resultado.regras_ordenadas || [
+    const todasAsRegras = resultado.regras_ordenadas ? [...resultado.regras_ordenadas] : [
         ...(resultado.regras_violadas || []),
         ...(resultado.regras_cumpridas || []),
         ...(resultado.regras_sem_informacao || [])
     ];
+    if (resultado.mgaProjection) todasAsRegras.push(criarRegraMga(resultado.mgaProjection));
     const servico = todasAsRegras.find(regra => regra.tipo === 'servico_divida');
 
     if (todasAsRegras.length === 0) {
@@ -629,6 +779,10 @@ function renderizarResultados(resultado) {
             </td>
         `;
 
+        if (regra.tipo === 'mga') {
+            tr.children[1].querySelector('span').className = 'mga-status';
+            tr.children[2].textContent = regra.descricao;
+        }
         if (regra.tipo === 'dtp') {
             tr.children[1].querySelector('span').textContent = regra.aprovado ? 'Atendido' : 'Excedido';
             tr.children[2].textContent = `${formatarPercentual(regra.dados_calculados.percentual)} — ${regra.descricao}`;
@@ -1125,7 +1279,7 @@ function mostrarDetalhesRegra(regra) {
     }
     const ouroAnterior = regra.tipo === 'regra_ouro_anterior';
     const ouroAtual = regra.tipo === 'regra_ouro_atual';
-    const dtp = regra.tipo === 'dtp' || regra.tipo === 'dcl' || regra.tipo === 'servico_divida' || ouroAnterior || ouroAtual;
+    const dtp = regra.tipo === 'mga' || regra.tipo === 'dtp' || regra.tipo === 'dcl' || regra.tipo === 'servico_divida' || ouroAnterior || ouroAtual;
     for (const id of ['modal-descricao', 'modal-proximo-passo', 'modal-base-normativa', 'modal-objetivo']) {
         document.getElementById(id).parentElement.hidden = dtp;
     }
@@ -1153,7 +1307,13 @@ function mostrarDetalhesRegra(regra) {
     calculadosContainer.classList.toggle('dtp-layout', regra.tipo === 'dtp');
     calculadosContainer.classList.toggle('servico-layout', servico);
     
-    if (ouroAnterior) {
+    if (regra.tipo === 'mga') {
+        if (resultadoDesatualizado) calculadosContainer.appendChild(elementoFiscal('p', 'simulacao-erro', 'Resultados desatualizados — recalcule a simulação.'));
+        calculadosContainer.appendChild(criarTabelaMga(regra.dados_calculados));
+        const editar = elementoFiscal('button', 'jornada-link', 'Editar cronograma financeiro');
+        editar.type = 'button'; editar.addEventListener('click', editarCronogramaFinanceiro);
+        calculadosContainer.appendChild(editar);
+    } else if (ouroAnterior) {
         renderizarRegraOuroAnterior(regra, calculadosContainer);
     } else if (ouroAtual) {
         renderizarRegraOuroAtual(regra, calculadosContainer);

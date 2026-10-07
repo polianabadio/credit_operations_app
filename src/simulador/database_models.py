@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, Date, DateTime
+from sqlalchemy import Column, Integer, String, Numeric, DateTime, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 
 # Base para os modelos declarativos
@@ -10,6 +10,43 @@ class Database:
         self.session = None
 
 db = Database()
+
+
+class OperacaoCredito(Base):
+    __tablename__ = 'operacao_credito'
+    id = Column(Integer, primary_key=True)
+    identificador = Column(String(150), nullable=False, unique=True)
+    fonte = Column(String(1000), nullable=False)
+    situacao = Column(String(40), nullable=False)
+    tipo = Column(String(100), nullable=False)
+    contratada = Column(Boolean, nullable=False)
+    valor_total = Column(Numeric(20, 2), nullable=False)
+    ano_inicio = Column(Integer, nullable=False)
+    ano_fim = Column(Integer, nullable=False)
+    ente = Column(String(100), nullable=False, default='Estado de Goiás')
+    moeda = Column(String(10), nullable=False, default='BRL')
+    cronograma_completo = Column(Boolean, nullable=False, default=False)
+    atualizado_em = Column(DateTime, nullable=False)
+
+
+class LiberacaoCredito(Base):
+    __tablename__ = 'liberacao_credito'
+    __table_args__ = (UniqueConstraint('operacao_id', 'ano'),)
+    id = Column(Integer, primary_key=True)
+    operacao_id = Column(Integer, ForeignKey('operacao_credito.id'), nullable=False)
+    ano = Column(Integer, nullable=False)
+    valor = Column(Numeric(20, 2), nullable=False)
+    fonte = Column(String(1000), nullable=False)
+    atualizado_em = Column(DateTime, nullable=False)
+
+
+class CoberturaMga(Base):
+    __tablename__ = 'cobertura_mga'
+    ente = Column(String(100), primary_key=True)
+    ano_inicio = Column(Integer, nullable=False)
+    ano_fim = Column(Integer, nullable=False)
+    fonte = Column(String(1000), nullable=False)
+    atualizado_em = Column(DateTime, nullable=False)
 
 
 class SincronizacaoSiconfi(Base):
