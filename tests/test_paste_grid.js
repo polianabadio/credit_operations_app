@@ -10,7 +10,7 @@ vm.runInContext(script, context);
 const paste = (text, row, column, totalRows) =>
     Array.from(context.prepararColagemMonetaria(text, row, column, totalRows), cell => ({...cell}));
 
-assert.deepEqual(paste('1.234,567\r\n2.000,00\r\n', 0, 0, 2), [
+assert.deepEqual(paste('1.234,56\r\n2.000,00\r\n', 0, 0, 2), [
     {linha: 0, coluna: 0, formatado: 'R$ 1.234,56'},
     {linha: 1, coluna: 0, formatado: 'R$ 2.000,00'},
 ]);
@@ -30,7 +30,9 @@ assert.deepEqual(paste('R$ 2.000.000000000,00', 0, 0, 1), [
 assert.equal(context.normalizarValorMonetario('R$ 2.000.000000000,00').formatado,
     'R$ 2.000.000.000.000,00');
 assert.throws(() => paste('1\n2\n3', 0, 0, 2), /excede os anos/);
-assert.throws(() => paste('1\t2', 0, 1, 2), /excede as duas colunas/);
+assert.throws(() => paste('1\t2', 0, 2, 2), /excede as três colunas/);
+assert.throws(() => paste('1.234,567', 0, 0, 1), /duas casas decimais/);
+assert.deepEqual(paste('1\t2\t3', 0, 0, 1).map(c => c.coluna), [0, 1, 2]);
 assert.throws(() => paste('1\tvalor inválido', 0, 0, 2), /use o formato/);
 assert.throws(() => paste('1\n-12.905.414,88', 0, 0, 2), /Linha 2, coluna 1: valor negativo/);
 

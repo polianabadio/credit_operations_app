@@ -86,28 +86,35 @@ function configurarEventListeners() {
         e.preventDefault();
         executarSimulacao();
     });
-    document.getElementById('ano').addEventListener('change', () => { montarLinhasServico(); sincronizarCronogramaMga(true); });
-    document.getElementById('ano-fim-contrato').addEventListener('change', () => { montarLinhasServico(); marcarSimulacaoDesatualizada(); });
-    document.getElementById('fator-rcl').addEventListener('change', async (e) => {
-        const resposta = await eel.salvar_fator_projecao_py(e.target.value)();
-        if (resposta.status === 'sucesso') {
-            e.target.value = resposta.fator;
-            document.getElementById('valor-fator-resumo').textContent = `· ${resposta.fator}`;
-        }
-        else mostrarMensagem(resposta.mensagem, 'error');
+    document.getElementById('ano').addEventListener('change', () => { montarLinhasServico(); invalidarCoberturaCaed(); carregarFatorCaed(); sincronizarCronogramaMga(true); });
+    document.getElementById('ano-fim-contrato').addEventListener('change', () => { montarLinhasServico(); invalidarCoberturaCaed(); marcarSimulacaoDesatualizada(); });
+    document.getElementById('caed-data-referencia').addEventListener('change', carregarFatorCaed);
+    document.getElementById('fator-rcl').addEventListener('change', () => {
+        const campo = document.getElementById('fator-rcl');
+        campo.salvamentoCaed = salvarTaxaCaed();
     });
+    for (const id of ['caed-fonte-demais', 'caed-data-cobertura']) {
+        document.getElementById(id).addEventListener('input', invalidarCoberturaCaed);
+    }
     document.getElementById('btn-recalcular-servico').addEventListener('click', () => executarSimulacao(true));
-    document.getElementById('fluxo-adicionar-ano').addEventListener('click', adicionarLinhaFluxoCredito);
+    document.getElementById('btn-recalcular-mga').addEventListener('click', () => executarSimulacao(true));
     document.getElementById('mga-cronograma-modo').addEventListener('change', () => {
-        document.getElementById('fluxo-credito-linhas').replaceChildren(); sincronizarCronogramaMga();
+        const grade = document.getElementById('fluxo-credito-linhas');
+        if (grade.dataset.modo === 'annual_schedule') grade.dataset.fimAnual = document.getElementById('mga-ano-fim').value;
+        else if (grade.dataset.fimAnual && document.getElementById('mga-cronograma-modo').value === 'annual_schedule') {
+            document.getElementById('mga-ano-fim').value = grade.dataset.fimAnual;
+        }
+        sincronizarCronogramaMga();
     });
     document.getElementById('mga-escopo').addEventListener('change', () => sincronizarCronogramaMga());
 
     for (const id of ['mga-ano-inicio', 'mga-ano-fim']) document.getElementById(id).addEventListener('change', () => {
-        document.getElementById('fluxo-credito-linhas').replaceChildren(); sincronizarCronogramaMga();
+        sincronizarCronogramaMga();
     });
     document.getElementById('secao-simulacao').addEventListener('input', marcarSimulacaoDesatualizada);
     document.getElementById('secao-simulacao').addEventListener('change', marcarSimulacaoDesatualizada);
+    document.getElementById('modal-feedback').addEventListener('input', marcarSimulacaoDesatualizada);
+    document.getElementById('modal-feedback').addEventListener('change', marcarSimulacaoDesatualizada);
     document.getElementById('btn-relatorio-simulacao').addEventListener('click', baixarRelatorioSimulacao);
 
     // Botão para atualizar dados da API Siconfi
@@ -164,38 +171,71 @@ let consultaSadipemEmCurso = null;
 
 function sincronizarCronogramaMga(reiniciar = false) {
     const container = document.getElementById('fluxo-credito-linhas');
-    const integral = document.getElementById('mga-cronograma-modo').value === 'single_year';
+    const integral = false;
+    container.dataset.modo = 'annual_schedule';
+    if (reiniciar) delete container.dataset.fimAnual;
     const referencia = document.getElementById('ano').value;
     const inicio = document.getElementById('mga-ano-inicio');
     const fim = document.getElementById('mga-ano-fim');
-    if (!inicio.value || reiniciar) inicio.value = referencia;
-    if (!fim.value || reiniciar || integral) fim.value = inicio.value;
-    fim.disabled = integral;
-    if (reiniciar || integral) container.replaceChildren();
-    if (!container.children.length) {
-        const inicial = Number(inicio.value), final = Number(fim.value);
-        for (let a = inicial; a <= final && container.children.length < 81; a++) adicionarLinhaFluxoCredito();
+    if (reiniciar || (!container.dataset.periodo && !inicio.value && !fim.value)) {
+        inicio.value = referencia;
+        fim.value = referencia;
+    }
+    inicio.min = referencia;
+    const inicioValido = inicio.value !== '' && Number.isInteger(Number(inicio.value))
+        && Number(inicio.value) >= Number(referencia) && Number(inicio.value) <= 2100;
+    fim.min = inicioValido ? inicio.value : referencia;
+    fim.disabled = integral || !inicioValido;
+    fim.parentElement.hidden = false;
+    document.getElementById('mga-inicio-rotulo').textContent = 'Primeiro ano de liberação';
+    document.getElementById('mga-periodo-ajuda').textContent = integral
+        ? 'O valor requisitado será recebido integralmente nesse exercício.'
+        : 'Preencha primeiro o ano inicial e depois o final, que não pode ser menor que o inicial. A grade inclui todos os exercícios desse intervalo.';
+    const inicial = Number(inicio.value), final = Number(fim.value);
+    const valido = inicioValido && fim.value !== '' && Number.isInteger(final) && inicial >= Number(referencia)
+        && final >= inicial && final <= 2100 && final - inicial < 81;
+    const periodo = `${integral}:${inicial}:${final}`;
+    if (reiniciar || container.dataset.periodo !== periodo || !container.children.length) {
+        const anteriores = reiniciar ? new Map() : new Map([...container.querySelectorAll('[data-ano]')]
+            .map(linha => [Number(linha.dataset.ano), linha.querySelector('input').value]));
+        container.replaceChildren();
+        if (valido) for (let a = inicial; a <= final; a++) {
+            adicionarLinhaFluxoCredito(a);
+            container.lastElementChild.querySelector('input').value = anteriores.get(a) ?? '';
+        }
+        container.dataset.periodo = periodo;
     }
     let total = null;
     try { const texto = document.getElementById('valor-requisitado').value.trim(); total = texto ? lerValorRequisitado(texto).numero : null; }
     catch (_) { /* O formulário principal apresenta o erro de valor. */ }
-    for (const input of container.querySelectorAll('input')) input.readOnly = integral;
-    if (integral) container.querySelector('input').value = total == null ? '' : String(total);
-    document.getElementById('fluxo-adicionar-ano').hidden = integral;
-    document.getElementById('mga-valor-resumo').textContent = `Valor requisitado compartilhado: ${total == null ? 'Aguardando preenchimento' : formatarMoeda(total)}. ${integral ? 'Liberação integral no ano selecionado.' : 'Informe os desembolsos previstos no contrato.'}`;
+    const unicoExercicio = valido && inicial === final;
+    for (const input of container.querySelectorAll('input')) input.readOnly = unicoExercicio;
+    if (unicoExercicio) container.querySelector('input').value = total == null ? '' : String(total);
+    document.getElementById('mga-valor-resumo').textContent = valido
+        ? `Valor requisitado: ${total == null ? 'Aguardando preenchimento' : formatarMoeda(total)}. ${unicoExercicio ? 'Liberação integral no ano selecionado; valor reutilizado dos dados da operação.' : 'A soma das liberações anuais deve corresponder a esse valor.'}`
+        : 'Período inválido: use anos a partir do exercício da análise, com ano final igual ou posterior ao inicial.';
     marcarSimulacaoDesatualizada();
 }
 
 function obterEntradaMga() {
+    const taxa = document.getElementById('fator-rcl').value.trim().replace(/%$/, '').trim().replace(',', '.');
+    if (!taxa || !Number.isFinite(Number(taxa)) || Number(taxa) <= -100) {
+        throw new Error('Informe uma taxa anual de projeção da RCL válida nos dados da operação.');
+    }
+    const inicio = Number(document.getElementById('mga-ano-inicio').value);
+    const fim = Number(document.getElementById('mga-ano-fim').value);
+    if (!Number.isInteger(inicio) || inicio < Number(document.getElementById('ano').value)
+        || !Number.isInteger(fim) || fim < inicio || fim > 2100 || fim - inicio >= 81) {
+        throw new Error('Confira o período das liberações: o ano final deve ser igual ou posterior ao inicial, a partir do exercício da análise.');
+    }
     return {scope: document.getElementById('mga-escopo').value,
         mode: document.getElementById('mga-cronograma-modo').value,
         releaseStart: Number(document.getElementById('mga-ano-inicio').value),
         releaseEnd: Number(document.getElementById('mga-ano-fim').value),
         operationIdentifier: document.getElementById('mga-identificador').value.trim() || null,
-        projectionParameter: {value: document.getElementById('mga-parametro-valor').value,
-            unit: document.getElementById('mga-parametro-unidade').value,
-            source: document.getElementById('mga-parametro-fonte').value,
-            date: document.getElementById('mga-parametro-data').value},
+        projectionParameter: {value: taxa, unit: 'percent',
+            source: 'Taxa local compartilhada da operação — CAED e MGA',
+            date: document.getElementById('caed-data-referencia').value},
         rows: [...document.querySelectorAll('#fluxo-credito-linhas .fluxo-sim-linha')].map(linha => ({
             ano: Number(linha.dataset.ano),
             liberacaoNovaOperacao: linha.querySelector('input').value.trim() === '' ? null : Number(linha.querySelector('input').value)
@@ -264,11 +304,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-function adicionarLinhaFluxoCredito() {
+function adicionarLinhaFluxoCredito(anoExplicito) {
     const container = document.getElementById('fluxo-credito-linhas');
     if (container.children.length >= 81) return;
     const anoBase = Number(document.getElementById('mga-ano-inicio').value) || Number(document.getElementById('ano').value);
-    const ano = container.children.length ? Number(container.lastElementChild.dataset.ano) + 1 : anoBase;
+    const ano = Number.isInteger(anoExplicito) ? anoExplicito
+        : container.children.length ? Number(container.lastElementChild.dataset.ano) + 1 : anoBase;
     const linha = document.createElement('div');
     linha.className = 'fluxo-sim-linha';
     linha.dataset.ano = String(ano);
@@ -293,25 +334,35 @@ function adicionarLinhaFluxoCredito() {
     titulo.textContent = `Exercício ${ano}`;
     linha.prepend(titulo);
     container.appendChild(linha);
-    document.getElementById('mga-ano-fim').value = ano;
+    if (!Number.isInteger(anoExplicito)) document.getElementById('mga-ano-fim').value = ano;
     marcarSimulacaoDesatualizada();
 }
 
 async function carregarSadipemLimites() {
     if (consultaSadipemEmCurso) return consultaSadipemEmCurso;
     if (!painelFiscalAtual?.exercicio) return;
+    if (painelFiscalAtual.sadipem && painelFiscalAtual.sadipem.motivo !== 'API_ERROR' &&
+        painelFiscalAtual.margemPublica && painelFiscalAtual.margemPublica.status !== 'Consultando') return;
+    const painelConsultado = painelFiscalAtual;
+    painelConsultado.margemPublica = {status: 'Consultando'};
+    renderizarVisaoFiscal(painelConsultado);
     consultaSadipemEmCurso = (async () => {
         try {
             const resposta = await eel.obter_comprometimento_sadipem_py()();
             if (resposta.status !== 'sucesso') throw new Error(resposta.mensagem);
+            if (painelConsultado !== painelFiscalAtual) return;
             painelFiscalAtual.sadipem = resposta.sadipem;
+            painelFiscalAtual.margemPublica = resposta.margemPublica;
             renderizarVisaoFiscal(painelFiscalAtual);
         } catch (error) {
+            if (painelConsultado !== painelFiscalAtual) return;
             console.error('Erro ao consultar SADIPEM:', error);
             painelFiscalAtual.sadipem = {statusDadosMga: 'Unavailable', motivo: 'API_ERROR'};
+            painelFiscalAtual.margemPublica = null;
             renderizarVisaoFiscal(painelFiscalAtual);
         } finally {
             consultaSadipemEmCurso = null;
+            if (painelConsultado !== painelFiscalAtual) carregarSadipemLimites();
         }
     })();
     return consultaSadipemEmCurso;
@@ -321,14 +372,34 @@ async function carregarPainelFiscal() {
     try {
         const resposta = await eel.obter_painel_fiscal_py()();
         if (resposta.status !== 'sucesso') throw new Error(resposta.mensagem);
-        painelFiscalAtual = resposta.painel;
+        const anterior = painelFiscalAtual;
+        const atual = resposta.painel;
+        if (anterior?.sadipem && anterior.sadipem.motivo !== 'API_ERROR' &&
+            anterior.margemPublica && anterior.margemPublica.status !== 'Consultando' &&
+            mesmaBaseMargemPublica(anterior, atual)) {
+            atual.sadipem = anterior.sadipem;
+            atual.margemPublica = anterior.margemPublica;
+        }
+        painelFiscalAtual = atual;
         renderizarPainelFiscal(resposta.painel);
-        if (!document.getElementById('secao-limites').classList.contains('hidden')) carregarSadipemLimites();
+        carregarSadipemLimites();
     } catch (error) {
         console.error('Erro ao carregar painel fiscal:', error);
         document.getElementById('painel-estado-dados').textContent = 'Não foi possível carregar os dados';
         document.getElementById('painel-alertas').textContent = 'Não foi possível consultar o painel fiscal. Tente novamente após verificar a conexão com o banco de dados.';
     }
+}
+
+function mesmaBaseMargemPublica(anterior, atual) {
+    const base = painel => ({
+        exercicio: painel.exercicio,
+        rcl: Object.fromEntries(['valor', 'exercicio', 'ano', 'periodo', 'conta', 'coluna', 'anexo', 'uf', 'esfera']
+            .map(chave => [chave, painel.rcl?.[chave] ?? null])),
+        projecao: (painel.fluxo_credito?.rows || []).map(linha =>
+            [linha.ano, linha.rclProjetada, linha.tetoAnual]),
+        parametroValidado: painel.fluxo_credito?.parameterValidated ?? null
+    });
+    return JSON.stringify(base(anterior)) === JSON.stringify(base(atual));
 }
 
 function renderizarPainelFiscal(painel) {
@@ -381,11 +452,7 @@ async function carregarDadosIniciais() {
         if (resultado.status === 'sucesso') {
             popularSeletorDeAnos(resultado.anos_disponiveis);
             montarLinhasServico();
-            const fatorCampo = document.getElementById('fator-rcl');
-            if (!fatorCampo.dataset.carregado) {
-                fatorCampo.value = await eel.obter_fator_projecao_py()();
-                fatorCampo.dataset.carregado = '1';
-            }
+            await carregarFatorCaed();
             console.log("Anos disponíveis carregados:", resultado.anos_disponiveis);
         } else {
             throw new Error(resultado.mensagem);
@@ -408,23 +475,69 @@ function marcarSimulacaoDesatualizada() {
     document.getElementById('btn-relatorio-simulacao').disabled = true;
 }
 
+function invalidarCoberturaCaed() {
+    document.getElementById('caed-cobertura-completa').checked = false;
+}
+
+async function carregarFatorCaed() {
+    const data = document.getElementById('caed-data-referencia').value;
+    const campo = document.getElementById('fator-rcl');
+    const origem = document.getElementById('caed-fator-origem');
+    campo.value = '';
+    origem.textContent = 'Consultando referência documentada do fator CAED...';
+    try {
+        const fator = await eel.obter_fator_projecao_py(data)();
+        if (data !== document.getElementById('caed-data-referencia').value) return;
+        campo.value = fator ? `${String(fator.taxa_percentual ?? '').replace('.', ',')}%` : '';
+        origem.textContent = fator ? 'Taxa armazenada para as próximas consultas.'
+            : 'Fator não validado para esta referência — análise INCONCLUSIVA.';
+    } catch (_) {
+        if (data === document.getElementById('caed-data-referencia').value) origem.textContent = 'Fator indisponível — análise INCONCLUSIVA.';
+    }
+}
+
+async function salvarTaxaCaed() {
+    const campo = document.getElementById('fator-rcl');
+    marcarSimulacaoDesatualizada();
+    try {
+        const resposta = await eel.salvar_fator_projecao_py(campo.value)();
+        if (resposta.status !== 'sucesso') throw new Error(resposta.mensagem);
+        campo.value = `${String(resposta.fator).replace('.', ',')}%`;
+        document.getElementById('caed-fator-origem').textContent = 'Taxa salva para as próximas consultas.';
+    } catch (erro) {
+        document.getElementById('caed-fator-origem').textContent = `Taxa não salva: ${erro.message}`;
+        campo.setCustomValidity('Salve uma taxa válida antes de simular.');
+        return;
+    }
+    campo.setCustomValidity('');
+}
+
+function normalizarPagamentoCaed(valor, campo = 'Pagamento') {
+    const texto = String(valor ?? '').trim();
+    const decimais = texto.split(',')[1] || '';
+    if (decimais.length > 2 && /[1-9]/.test(decimais.slice(2))) throw new Error(`${campo}: informe no máximo duas casas decimais.`);
+    return normalizarValorMonetario(valor, campo);
+}
+
 function assinaturaEntradasSimulacao() {
-    return JSON.stringify([...document.querySelectorAll('#secao-simulacao input, #secao-simulacao select, #secao-simulacao textarea')]
+    return JSON.stringify([...document.querySelectorAll('#secao-simulacao input, #secao-simulacao select, #secao-simulacao textarea, #modal-feedback input, #modal-feedback select, #modal-feedback textarea')]
         .map(campo => [campo.id || campo.name || campo.getAttribute('aria-label'), campo.value, campo.type === 'checkbox' ? campo.checked : null]));
 }
 
 function editarCronogramaFinanceiro() {
-    esconderModal(); mostrarSecao('secao-simulacao');
-    document.getElementById('cronograma-pagamentos').open = true;
-    document.getElementById('fluxo-sim-titulo').scrollIntoView({behavior:'smooth'});
+    const mga = document.getElementById('modal-feedback').dataset.regraTipo === 'mga';
+    const alvo = document.getElementById(mga ? 'mga-entradas' : 'cronograma-pagamentos');
+    if (!mga) alvo.open = true;
+    alvo.scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 
 function criarRegraMga(projecao) {
+    const linha = (projecao.rows || []).find(item => item.ano === (projecao.criticalYear ?? projecao.ano));
     return {tipo:'mga', nome:'Liberações de crédito — limite de 16% da RCL',
-        status:projecao.verificationStatus || projecao.globalStatus,
-        descricao:projecao.maxMgaRcl != null
-            ? `Maior comprometimento: ${formatarPercentual(projecao.maxMgaRcl * 100)} em ${projecao.criticalYear}, limite de 16%. ${projecao.message || ''}`
-            : projecao.message || 'Informe as liberações das demais operações para concluir a verificação.',
+        status:resultadoVisualMga(projecao),
+        descricao:linha?.margemEstimada != null
+            ? `Saldo após a nova operação em ${linha.ano}: ${formatarMoeda(linha.margemEstimada)}.${projecao.publicReference ? ' Demais liberações segundo o PVL; conferir cobertura.' : ''}`
+            : 'Faltam dados para apurar o saldo anual. Confira a composição em Ver Detalhes.',
         base_normativa:'RSF 43/2001, art. 7º, I, §§ 1º e 6º; MIP 2026.08.21',
         proximo_passo:'Conferir fontes, cobertura e demais verificações.',
         objetivo:'Comparar as liberações anuais incluídas no cálculo com 16% da RCL projetada.',
@@ -447,14 +560,28 @@ function baixarRelatorioSimulacao() {
     for (const regra of relatorio.resultados.regras_ordenadas || []) {
         const secao = elementoFiscal('section');
         secao.append(elementoFiscal('h2', '', regra.nome), elementoFiscal('p', '', `${regra.status}: ${regra.descricao}`));
-        const memoria = elementoFiscal('details'); memoria.appendChild(elementoFiscal('summary', '', 'Memória desta verificação'));
-        memoria.appendChild(elementoFiscal('pre', '', JSON.stringify(regra, null, 2))); secao.appendChild(memoria);
+        if (regra.tipo === 'servico_divida') {
+            secao.appendChild(criarMemoriaCaed(regra));
+            const historico = regra.dados_calculados.historico;
+            secao.appendChild(elementoFiscal('p', '', historico
+                ? `Diagnóstico histórico separado: serviço ${formatarMoeda(historico.servico_divida)} / RCL ${formatarMoeda(historico.rcl)}; ${historico.situacao}. Não bloqueia a análise prospectiva.`
+                : 'Diagnóstico histórico indisponível; não bloqueia a análise prospectiva.'));
+        } else {
+            const memoria = elementoFiscal('details'); memoria.appendChild(elementoFiscal('summary', '', 'Memória desta verificação'));
+            memoria.appendChild(elementoFiscal('pre', '', JSON.stringify(regra, null, 2))); secao.appendChild(memoria);
+        }
         documento.body.appendChild(secao);
     }
     documento.body.appendChild(elementoFiscal('h2', '', 'Liberações de crédito — limite de 16% da RCL'));
     documento.body.appendChild(criarTabelaMga(relatorio.resultados.mgaProjection));
     const dados = elementoFiscal('details'); dados.appendChild(elementoFiscal('summary', '', 'Entradas e resultados completos do cálculo'));
-    const memoria = elementoFiscal('pre', '', JSON.stringify(relatorio, null, 2)); memoria.id = 'memoria-relatorio'; dados.appendChild(memoria);
+    // CAED é apresentado em tabela e memória decimal, sem uma regra em JSON.
+    const outrasMemorias = { ...relatorio, entradas: {...relatorio.entradas, servico: undefined},
+        resultados: {...relatorio.resultados} };
+    for (const chave of ['regras_ordenadas', 'regras_cumpridas', 'regras_violadas', 'regras_sem_informacao']) {
+        if (outrasMemorias.resultados[chave]) outrasMemorias.resultados[chave] = outrasMemorias.resultados[chave].filter(r => r.tipo !== 'servico_divida');
+    }
+    const memoria = elementoFiscal('pre', '', JSON.stringify(outrasMemorias, null, 2)); memoria.id = 'memoria-relatorio'; dados.appendChild(memoria);
     documento.body.appendChild(dados);
     const blob = new Blob(['<!DOCTYPE html>' + documento.documentElement.outerHTML], {type:'text/html;charset=utf-8'});
     const link = document.createElement('a'); link.href = URL.createObjectURL(blob);
@@ -463,6 +590,12 @@ function baixarRelatorioSimulacao() {
 }
 
 async function executarSimulacao(usarProjecaoServico = false) {
+    const campoTaxa = document.getElementById('fator-rcl');
+    if (campoTaxa?.salvamentoCaed) await campoTaxa.salvamentoCaed;
+    if (campoTaxa?.validationMessage) {
+        campoTaxa.reportValidity();
+        return;
+    }
     const ano = parseInt(document.getElementById('ano').value);
     if (!Number.isInteger(ano)) {
         mostrarMensagem('Selecione um ano de referência disponível para continuar.', 'error');
@@ -484,8 +617,8 @@ async function executarSimulacao(usarProjecaoServico = false) {
     }
     const modal = document.getElementById('modal-feedback');
     const modalServico = usarProjecaoServico && !modal.classList.contains('hidden') &&
-        modal.dataset.regraTipo === 'servico_divida';
-    const botaoCarregamento = modalServico ? 'btn-recalcular-servico' : 'form-simulacao';
+        ['servico_divida', 'mga'].includes(modal.dataset.regraTipo);
+    const botaoCarregamento = modalServico ? (modal.dataset.regraTipo === 'mga' ? 'btn-recalcular-mga' : 'btn-recalcular-servico') : 'form-simulacao';
     const botao = botaoCarregamento === 'form-simulacao'
         ? document.querySelector('#form-simulacao button[type="submit"]')
         : document.getElementById(botaoCarregamento);
@@ -495,33 +628,36 @@ async function executarSimulacao(usarProjecaoServico = false) {
     mostrarCarregamento(true, botaoCarregamento);
 
     try {
-        const parametrosServico = obterEntradaServico();
-        const temFluxoServico = [...document.querySelectorAll('#linhas-hipotese-1 input, #linhas-hipotese-2 input')].some(input => input.value.trim() !== '');
-        const entradaServico = modalServico || temFluxoServico ? parametrosServico : null;
-        const salvo = await eel.salvar_fator_projecao_py(document.getElementById('fator-rcl').value)();
-        if (salvo.status !== 'sucesso') throw new Error(salvo.mensagem);
-        if (entradaServico) entradaServico.fator = salvo.fator;
-        const entradaMga = obterEntradaMga();
         const revisao = revisaoSimulacao;
+        const assinatura = assinaturaEntradasSimulacao();
+        let entradaServico, entradaMga;
+        try { entradaServico = obterEntradaServico(); }
+        catch (erro) { entradaServico = {erro_entrada: erro.message}; }
+        try { entradaMga = obterEntradaMga(); }
+        catch (erro) { entradaMga = {erro_entrada: erro.message}; }
         const resultado = await eel.analisar_operacao_py(ano, valorRequisitado, entradaServico, entradaMga)();
-        if (revisao !== revisaoSimulacao) { mostrarMensagem('As entradas mudaram durante o cálculo. Recalcule a simulação.', 'warning'); return; }
+        if (revisao !== revisaoSimulacao || assinatura !== assinaturaEntradasSimulacao()) { mostrarMensagem('As entradas mudaram durante o cálculo. Recalcule a simulação.', 'warning'); return; }
         console.log("Resultado da análise recebido:", resultado);
 
         if (resultado.status !== 'Análise completa.') throw new Error(resultado.mensagem || 'Não foi possível concluir a simulação. Verifique os dados informados ou tente novamente.');
         
-        resultadoSimulacaoAtual = {calculadoEm:new Date().toISOString(), assinatura:assinaturaEntradasSimulacao(),
+        resultadoSimulacaoAtual = {calculadoEm:new Date().toISOString(), assinatura,
             entradas:{ano, valorRequisitado, servico:entradaServico, mga:entradaMga}, resultado};
         resultadoDesatualizado = false;
         document.getElementById('simulacao-atualidade').textContent = 'Resultados atualizados';
         document.getElementById('tbody-resultados').classList.remove('resultados-desatualizados');
         document.getElementById('btn-relatorio-simulacao').disabled = false;
         renderizarResultados(resultado);
+        if (modalServico) {
+            const regra = modal.dataset.regraTipo === 'mga' ? criarRegraMga(resultado.mgaProjection)
+                : resultado.regras_ordenadas.find(item => item.tipo === 'servico_divida');
+            if (regra) mostrarDetalhesRegra(regra);
+        }
         const destinoMga = document.getElementById('fluxo-credito-resultado');
         destinoMga.textContent = 'Confira Liberações de crédito na lista de verificações abaixo.';
         if (!modalServico) mostrarSecao('secao-simulacao');
         if (modalServico) {
-            const alvo = document.getElementById('servico-resultado-hipotese-2') ||
-                document.getElementById('servico-resultado-hipotese-1');
+            const alvo = document.getElementById('servico-resultados');
             alvo?.scrollIntoView({behavior: 'smooth', block: 'nearest'});
         }
         if (!modalServico) {
@@ -606,6 +742,12 @@ function montarLinhasServico() {
     const ano = Number(document.getElementById('ano').value);
     const campoFim = document.getElementById('ano-fim-contrato');
     if (!Number.isInteger(ano) || ano < 1900) return;
+    const dataCampo = document.getElementById('caed-data-referencia');
+    if (!dataCampo.value.startsWith(`${ano}-`)) {
+        const agora = new Date();
+        dataCampo.value = ano === agora.getFullYear()
+            ? `${ano}-${String(agora.getMonth() + 1).padStart(2, '0')}-${String(agora.getDate()).padStart(2, '0')}` : `${ano}-12-31`;
+    }
     const escolhaAnterior = Number(campoFim.value);
     const fim = Number.isInteger(escolhaAnterior) && escolhaAnterior >= ano && escolhaAnterior <= ano + 50
         ? escolhaAnterior : ano;
@@ -626,39 +768,44 @@ function montarLinhasServico() {
         for (const anoLinha of anos) {
             const linha = document.createElement('div');
             linha.dataset.ano = String(anoLinha);
-            linha.className = 'grid grid-cols-1 md:grid-cols-3 gap-2 items-center';
+            linha.className = 'caed-input-row';
             const titulo = document.createElement('span');
             titulo.className = 'text-sm font-medium text-gray-700';
             titulo.textContent = String(anoLinha);
             linha.appendChild(titulo);
-            for (const [indice, rotulo] of ['Juros e encargos (R$)', 'Amortização (R$)'].entries()) {
+            for (const [indice, rotulo] of ['Juros e encargos da nova operação (R$)', 'Amortização da nova operação (R$)', 'Pagamentos das demais operações (R$)'].entries()) {
+                const rotuloCampo = document.createElement('label');
+                rotuloCampo.className = 'caed-input-label';
+                const textoCampo = document.createElement('span');
+                textoCampo.textContent = rotulo;
+                rotuloCampo.appendChild(textoCampo);
                 const campo = document.createElement('input');
                 campo.type = 'text';
                 campo.inputMode = 'decimal';
                 campo.autocomplete = 'off';
-                campo.placeholder = 'R$ 0,00';
+                campo.placeholder = 'Informe o valor em R$';
                 campo.setAttribute('aria-label', `${prefixo} ${anoLinha}: ${rotulo}`);
                 campo.className = 'w-full rounded-md border border-gray-300 px-3 py-2';
                 campo.value = anteriores.get(anoLinha)?.[indice] ?? '';
                 campo.addEventListener('focus', () => campo.select());
+                campo.addEventListener('input', invalidarCoberturaCaed);
                 campo.addEventListener('blur', () => {
                     try {
-                        campo.value = normalizarValorMonetario(campo.value, rotulo)?.formatado ?? '';
+                        campo.value = normalizarPagamentoCaed(campo.value, rotulo)?.formatado ?? '';
                         campo.classList.remove('border-red-500');
                     } catch (error) {
                         campo.classList.add('border-red-500');
                     }
                 });
                 campo.addEventListener('paste', event => colarPlanilhaServico(event, container, linha, indice));
-                linha.appendChild(campo);
+                rotuloCampo.appendChild(campo);
+                linha.appendChild(rotuloCampo);
             }
             container.appendChild(linha);
         }
     };
     criar(document.getElementById('linhas-hipotese-1'),
-        fim >= ano && fim <= ano + 50 ? Array.from({length: fim - ano + 1}, (_, i) => ano + i) : [], 'Hipótese 1');
-    criar(document.getElementById('linhas-hipotese-2'),
-        ano <= 2027 ? Array.from({length: 2028 - ano}, (_, i) => ano + i) : [], 'Hipótese 2');
+        fim >= ano && fim <= ano + 50 ? Array.from({length: fim - ano + 1}, (_, i) => ano + i) : [], 'CAED');
 }
 
 function prepararColagemMonetaria(texto, linhaInicial, colunaInicial, totalLinhas) {
@@ -669,11 +816,11 @@ function prepararColagemMonetaria(texto, linhaInicial, colunaInicial, totalLinha
     const alteracoes = [];
     for (const [deslocamentoLinha, conteudo] of linhas.entries()) {
         const colunas = conteudo.split('\t');
-        if (colunaInicial + colunas.length > 2) {
-            throw new Error('A colagem excede as duas colunas de valores. Comece pela coluna de juros.');
+        if (colunaInicial + colunas.length > 3) {
+            throw new Error('A colagem excede as três colunas de pagamentos. Comece pela coluna de juros.');
         }
         for (const [deslocamentoColuna, valor] of colunas.entries()) {
-            const dinheiro = normalizarValorMonetario(valor, `Linha ${deslocamentoLinha + 1}, coluna ${deslocamentoColuna + 1}`);
+            const dinheiro = normalizarPagamentoCaed(valor, `Linha ${deslocamentoLinha + 1}, coluna ${deslocamentoColuna + 1}`);
             alteracoes.push({linha: linhaInicial + deslocamentoLinha,
                              coluna: colunaInicial + deslocamentoColuna,
                              formatado: dinheiro?.formatado ?? ''});
@@ -695,32 +842,27 @@ function colarPlanilhaServico(event, container, linhaInicial, colunaInicial) {
             campo.value = alteracao.formatado;
             campo.classList.remove('border-red-500');
         }
+        invalidarCoberturaCaed();
+        marcarSimulacaoDesatualizada();
     } catch (error) {
         mostrarMensagem(error.message, 'error');
     }
 }
 
-function preencherReferenciaServico(referencia) {
-    const aviso = document.getElementById('referencia-rreo-servico');
-    if (!referencia) {
-        aviso.textContent = 'Sem valores de referência publicados no RREO Anexo 01 para este ano.';
-        return;
-    }
-    aviso.textContent = `Referência do RREO: ${referencia.origem}, ${referencia.periodo}º bimestre de ${referencia.ano}. Juros e encargos: ${formatarMoeda(referencia.juros_encargos)}; amortização: ${formatarMoeda(referencia.amortizacao)}.`;
-}
-
 function obterEntradaServico() {
     const ler = (id) => [...document.querySelectorAll(`#${id} [data-ano]`)].map(linha => {
-        const [juros, amortizacao] = linha.querySelectorAll('input');
+        const [juros, amortizacao, demais] = linha.querySelectorAll('input');
         return {ano: Number(linha.dataset.ano),
-                juros_encargos: normalizarValorMonetario(juros.value, 'Juros e encargos')?.numero ?? null,
-                amortizacao: normalizarValorMonetario(amortizacao.value, 'Amortização')?.numero ?? null};
+                juros_encargos: normalizarPagamentoCaed(juros.value, 'Juros e encargos')?.numero ?? null,
+                amortizacao: normalizarPagamentoCaed(amortizacao.value, 'Amortização')?.numero ?? null,
+                demais_operacoes: normalizarPagamentoCaed(demais.value, 'Demais operações')?.numero ?? null};
     });
-    return {fator: document.getElementById('fator-rcl').value,
+    return {data_referencia: document.getElementById('caed-data-referencia').value,
             ano_fim_contrato: Number(document.getElementById('ano-fim-contrato').value),
-            hipotese_1: ler('linhas-hipotese-1'),
-            hipotese_2: document.getElementById('secao-hipotese-2').classList.contains('hidden')
-                ? null : ler('linhas-hipotese-2')};
+            linhas: ler('linhas-hipotese-1'),
+            cobertura_demais: {completa: document.getElementById('caed-cobertura-completa').checked,
+                fonte: document.getElementById('caed-fonte-demais').value.trim(),
+                data_referencia: document.getElementById('caed-data-cobertura').value}};
 }
 
 function popularSeletorDeAnos(anos) {
@@ -762,9 +904,9 @@ function renderizarResultados(resultado) {
     todasAsRegras.forEach(regra => {
         const tr = document.createElement('tr');
         
-        const statusClasse = regra.status === 'Cumprida' 
+        const statusClasse = regra.status === 'Cumprida' || regra.status === 'ATENDE'
             ? 'bg-green-100 text-green-800' 
-            : regra.status === 'Sem informação' ? 'bg-gray-100 text-gray-800' : 'bg-red-100 text-red-800';
+            : regra.status === 'Sem informação' || regra.status === 'INCONCLUSIVO' ? 'bg-gray-100 text-gray-800' : 'bg-red-100 text-red-800';
 
         tr.innerHTML = `
             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${regra.nome}</td>
@@ -780,7 +922,9 @@ function renderizarResultados(resultado) {
         `;
 
         if (regra.tipo === 'mga') {
-            tr.children[1].querySelector('span').className = 'mga-status';
+            const p = regra.dados_calculados;
+            tr.children[1].querySelector('span').className = 'mga-status ' +
+                (!p.dataAvailability ? 'mga-pendente' : (p.exceededYears || []).length ? 'mga-excedido' : 'mga-atendido');
             tr.children[2].textContent = regra.descricao;
         }
         if (regra.tipo === 'dtp') {
@@ -792,6 +936,10 @@ function renderizarResultados(resultado) {
                 ? 'Sem informação' : regra.aprovado ? 'Aprovado' : 'Recusado';
         }
 
+        if (regra.tipo === 'servico_divida') {
+            tr.children[1].querySelector('span').textContent = regra.estado === 'NAO_ATENDE' ? 'NÃO ATENDE' : regra.estado;
+            tr.children[2].textContent = regra.descricao;
+        }
         // Adiciona o listener no botão para mostrar o modal com os dados da regra específica
         tr.querySelector('.ver-detalhes-btn').addEventListener('click', () => mostrarDetalhesRegra(regra));
         
@@ -1073,210 +1221,89 @@ function renderizarDtp(regra, container) {
     container.appendChild(explicacao);
 }
 
+function criarMemoriaCaed(regra) {
+    const dados = regra.dados_calculados || {};
+    const criar = (tag, texto) => { const no = document.createElement(tag); if (texto !== undefined) no.textContent = texto; return no; };
+    const secao = criar('section');
+    secao.className = 'servico-section';
+    const estado = regra.estado || 'INCONCLUSIVO';
+    secao.append(criar('h4', 'Memória anual do CAED'), criar('p', `Resultado: ${estado === 'NAO_ATENDE' ? 'NÃO ATENDE' : estado}`));
+    const entrada = dados.memoria_exata?.entrada;
+    if (entrada) secao.appendChild(criar('p', `Data da análise: ${entrada.data_referencia || 'Não informada'} · Término da operação: ${entrada.ano_fim_contrato ?? 'Não informado'}.`));
+    const rolagem = criar('div'); rolagem.className = 'caed-table-scroll';
+    const tabela = criar('table'); tabela.className = 'caed-table';
+    const cabecalho = criar('thead'); const titulos = criar('tr');
+    for (const texto of ['Ano', 'Operação pretendida', 'Demais operações', 'CAED total', 'RCL projetada', 'CAED/RCL']) titulos.appendChild(criar('th', texto));
+    cabecalho.appendChild(titulos); tabela.appendChild(cabecalho);
+    const corpo = criar('tbody');
+    const moeda = valor => valor == null ? 'Não disponível' : formatarMoeda(valor);
+    for (const item of dados.linhas || []) {
+        const linha = criar('tr');
+        for (const texto of [String(item.ano), moeda(item.operacao_pleiteada), moeda(item.demais_operacoes), moeda(item.caed_total), moeda(item.rcl_projetada), item.percentual == null ? 'Não disponível' : formatarPercentual(item.percentual * 100)]) linha.appendChild(criar('td', texto));
+        corpo.appendChild(linha);
+    }
+    tabela.appendChild(corpo); rolagem.appendChild(tabela); secao.appendChild(rolagem);
+    const media = valor => valor == null ? 'Não disponível' : formatarPercentual(valor);
+    const alternativa = dados.alternativa_utilizada === 'ATE_2027' ? 'Até 31/12/2027' : dados.alternativa_utilizada === 'TERMINO_OPERACAO' ? 'Término da operação' : 'Não determinada';
+    secao.append(criar('p', `Média até o término da operação: ${media(dados.media_termino)}`),
+        criar('p', `Média até 2027: ${dados.anos_2027?.length === 0 ? 'Não aplicável — sem pagamentos elegíveis até 2027' : media(dados.media_2027)}`),
+        criar('p', `Alternativa mais benéfica: ${alternativa}`),
+        criar('p', `Percentual determinante: ${media(dados.percentual_determinante)} · Limite: 11,5% (igualdade atende)`),
+        criar('p', 'As médias usam apenas os anos com pagamentos positivos da operação pretendida. Um ano acima de 11,5% não reprova isoladamente a média.'));
+    const rcl = dados.rcl_fonte;
+    secao.appendChild(criar('p', rcl ? `Fonte da RCL: ${rcl.origem} · ${rcl.anexo} · Goiás/Estadual · ${rcl.periodo}º bimestre de ${rcl.exercicio} · Data-base ${rcl.data_base} · RCL ${moeda(rcl.valor)}.` : 'RCL ajustada para endividamento não disponível.'));
+    if (rcl) secao.appendChild(criar('p', `Conta: ${rcl.conta || 'Não disponível'} · Coluna: ${rcl.coluna || 'Não disponível'} · Valor decimal da RCL base: ${rcl.valor}.`));
+    const fator = dados.fator_atualizacao;
+    secao.appendChild(criar('p', fator ? `Fator: ${fator.valor} (multiplicador) · Referência ${fator.data_referencia} · Janela documentada desde ${fator.vigencia_inicio}; referências validadas até ${fator.referencia_validada_ate} · Origem: ${fator.fonte}. Projeção da data-base fiscal até dezembro, proporcional aos meses; anos seguintes com atualização anual.` : 'Fator sem fonte/vigência validada para esta referência.'));
+    if (fator?.fonte) { const link = criar('a', 'Fonte do fator: MIP'); link.href = fator.fonte; link.target = '_blank'; link.rel = 'noopener noreferrer'; secao.appendChild(link); }
+    const cobertura = dados.cobertura;
+    secao.appendChild(criar('p', cobertura?.completa ? `Cobertura declarada das demais operações: ${cobertura.fonte || 'Fonte ausente'} · Conferência ${cobertura.data_referencia || 'Data ausente'}.` : 'Demais operações: cobertura não confirmada; ausência não é zero.'));
+    for (const motivo of dados.motivos || []) secao.appendChild(criar('p', `${motivo.codigo}: ${motivo.mensagem}`));
+    const exata = criar('details'); exata.appendChild(criar('summary', 'Memória decimal exata do CAED'));
+    const tabelaExata = criar('table'); tabelaExata.className = 'caed-table';
+    const headExato = criar('tr');
+    for (const titulo of ['Ano', 'Juros/encargos', 'Amortização', 'Demais operações', 'CAED', 'RCL projetada', 'Relação decimal', 'Meses de projeção']) headExato.appendChild(criar('th', titulo));
+    tabelaExata.appendChild(headExato);
+    for (const item of dados.memoria_exata?.linhas || []) {
+        const linha = criar('tr');
+        for (const chave of ['ano', 'juros_encargos', 'amortizacao', 'demais_operacoes', 'caed_total', 'rcl_projetada', 'percentual', 'meses_projecao']) linha.appendChild(criar('td', String(item[chave] ?? 'Não disponível')));
+        tabelaExata.appendChild(linha);
+    }
+    const scrollExato = criar('div'); scrollExato.className = 'caed-table-scroll'; scrollExato.appendChild(tabelaExata); exata.appendChild(scrollExato);
+    const medias = dados.memoria_exata?.alternativas;
+    if (medias) exata.appendChild(criar('p', `Relações decimais exatas: término ${medias.media_termino}; até 2027 ${medias.media_2027 ?? 'não aplicável'}; determinante ${medias.percentual_determinante}; comparador ≤ ${medias.limite_percentual}.`));
+    secao.appendChild(exata);
+    return secao;
+}
+
 function renderizarServicoDivida(regra, container) {
     const dados = regra.dados_calculados || {};
-    const historico = dados.historico;
-    const resultados = document.getElementById('servico-resultados');
-    resultados.replaceChildren();
-    const criar = (tag, classe, texto) => {
-        const no = document.createElement(tag);
-        no.className = classe;
-        if (texto !== undefined) no.textContent = texto;
-        return no;
-    };
-    const secao = (titulo) => {
-        const no = criar('section', 'servico-section');
-        no.appendChild(criar('h4', 'servico-section-title', titulo));
-        container.appendChild(no);
-        return no;
-    };
-    const linha = (pai, rotulo, valor, destaque = false) => {
-        const dl = criar('div', `servico-value-row ${destaque ? 'servico-value-total' : ''}`);
-        dl.append(criar('dt', '', rotulo), criar('dd', '', valor));
-        pai.appendChild(dl);
-    };
-    const moedaOuIndisponivel = valor => valor === null || valor === undefined ? 'Não disponível' : formatarMoeda(valor);
-
-    const etapa = secao(`1ª etapa — Exercício anterior (${dados.ano_historico})`);
-    etapa.classList.add('servico-stage');
-    if (historico) {
-        etapa.classList.add(historico.aprovado ? 'servico-stage-ok' : 'servico-stage-failed');
-        etapa.appendChild(criar('span', `servico-badge ${historico.aprovado ? 'servico-ok' : 'servico-failed'}`,
-            historico.aprovado ? 'Regra atendida' : 'Regra não atendida'));
-        etapa.appendChild(criar('p', 'servico-stage-description', historico.aprovado
-            ? 'O serviço da dívida ficou abaixo de 11,5% da RCL do exercício anterior.'
-            : 'O serviço da dívida ficou igual ou acima de 11,5% da RCL do exercício anterior.'));
-        const resultado = criar('div', 'servico-result-grid');
-        for (const [rotulo, valor] of [
-            ['Serviço da dívida', historico.servico_divida],
-            ['Limite', historico.limite],
-            ['Margem', historico.margem],
-        ]) {
-            const celula = criar('div', 'servico-result-item');
-            celula.append(criar('span', '', rotulo), criar('strong', '', formatarMoeda(valor)));
-            resultado.appendChild(celula);
-        }
-        etapa.appendChild(resultado);
-        etapa.appendChild(criar('p', 'servico-comparison', `${formatarMoeda(historico.servico_divida)} ${historico.aprovado ? '<' : '≥'} ${formatarMoeda(historico.limite)} · A igualdade reprova esta etapa.`));
-
-        const detalhesExercicio = criar('details', 'servico-exercicio-detalhes');
-        detalhesExercicio.appendChild(criar('summary', '', 'Dados do exercício anterior · SICONFI'));
-        const exercicio = criar('div', 'servico-exercicio-dados');
-        linha(exercicio, 'RCL ajustada para endividamento', moedaOuIndisponivel(dados.rcl_historica));
-        linha(exercicio, 'Juros e encargos liquidados', formatarMoeda(historico.juros_encargos));
-        linha(exercicio, 'Amortização liquidada', formatarMoeda(historico.amortizacao));
-        linha(exercicio, 'Restos a pagar não processados', formatarMoeda(historico.restos_juros + historico.restos_amortizacao));
-        linha(exercicio, 'Serviço da dívida', formatarMoeda(historico.servico_divida), true);
-        linha(exercicio, 'Limite aplicável (calculado: RCL × 11,5%)', formatarMoeda(historico.limite), true);
-        const periodo = valor => valor == null ? 'período indisponível' : `${valor}º bimestre`;
-        exercicio.appendChild(criar('p', 'servico-source', `Fonte dos dados: SICONFI / RREO · RCL: Anexo 03, ${periodo(dados.periodo_rcl_historica)} de ${dados.ano_historico}; despesas: Anexo 01, ${periodo(dados.periodo_historico)} de ${dados.ano_historico}.`));
-        detalhesExercicio.appendChild(exercicio);
-        etapa.appendChild(detalhesExercicio);
-    } else {
-        etapa.appendChild(criar('p', 'servico-stage-description', 'Ainda não foi possível validar o exercício anterior com os dados oficiais disponíveis.'));
-    }
-    const baseContainer = document.getElementById('servico-dados-base');
-    baseContainer.replaceChildren();
-    const detalhesBase = criar('details', 'servico-exercicio-detalhes');
-    detalhesBase.appendChild(criar('summary', '', 'Dados-base da projeção · SICONFI'));
-    const base = criar('div', 'servico-exercicio-dados');
-    linha(base, 'RCL de referência', moedaOuIndisponivel(dados.rcl_atual));
-    linha(base, 'Período da RCL', dados.periodo_rcl_atual ? `${dados.periodo_rcl_atual}º bimestre de ${dados.ano_atual}` : 'Não disponível');
-    linha(base, 'Fonte da RCL', 'SICONFI / RREO, Anexo 03');
-    linha(base, 'Fator de projeção', dados.fator ?? 'Não disponível');
-    const referencia = dados.referencia_rreo_atual;
-    if (referencia) {
-        linha(base, 'Juros e encargos de referência', formatarMoeda(referencia.juros_encargos));
-        linha(base, 'Amortização de referência', formatarMoeda(referencia.amortizacao));
-        linha(base, 'Período das despesas', `${referencia.periodo}º bimestre de ${referencia.ano} · ${referencia.origem}`);
-    }
-    base.appendChild(criar('p', 'servico-source', 'Os valores do RREO são referência oficial. Os pagamentos futuros são informados pelo usuário nos campos abaixo.'));
-    detalhesBase.appendChild(base);
-    baseContainer.appendChild(detalhesBase);
-
-    const problemas = [];
-    if (dados.rcl_historica == null) problemas.push('RCL do exercício anterior: não disponível.');
-    if (dados.periodo_historico == null) problemas.push('Juros e amortização do exercício anterior: não disponíveis.');
-    if (dados.rcl_atual == null) problemas.push('RCL de referência para a projeção: não disponível.');
-    if (!referencia) problemas.push('Juros e amortização de referência do ano atual: não disponíveis; os campos da operação continuam editáveis.');
-    if (dados.periodo_historico && dados.periodo_rcl_historica && dados.periodo_historico !== dados.periodo_rcl_historica) {
-        problemas.push('RCL e despesas do exercício anterior pertencem a bimestres diferentes.');
-    }
-    if (regra.descricao?.startsWith('Dados inválidos ou ambíguos:')) {
-        problemas.push(regra.descricao.replace('Dados inválidos ou ambíguos:', 'Verifique o dado:'));
-    }
-    if (problemas.length) {
-        const aviso = secao('ATENÇÃO NOS DADOS DA PROJEÇÃO');
-        aviso.classList.add('servico-warning');
-        aviso.appendChild(criar('p', '', 'Não foi possível obter automaticamente todos os dados necessários.'));
-        const lista = criar('ul', '');
-        problemas.forEach(problema => lista.appendChild(criar('li', '', problema)));
-        aviso.appendChild(lista);
-        aviso.appendChild(criar('p', '', !historico || dados.rcl_atual == null
-            ? 'O cálculo não pode continuar até que os dados oficiais necessários estejam disponíveis.'
-            : 'A referência do ano atual é opcional; o cálculo continuará com os lançamentos válidos da operação.'));
-    }
-
-    for (const numero of [1, 2]) {
-        const hipotese = dados[`hipotese_${numero}`];
-        if (!hipotese) continue;
-        const resultado = criar('section', 'servico-section');
-        resultado.appendChild(criar('h4', 'servico-section-title', `RESULTADO DA PROJEÇÃO · HIPÓTESE ${numero}`));
-        resultados.appendChild(resultado);
-        resultado.id = `servico-resultado-hipotese-${numero}`;
-        resultado.appendChild(criar('span', `servico-badge ${hipotese.aprovado ? 'servico-ok' : 'servico-failed'}`,
-            hipotese.aprovado ? 'Hipótese atendida' : 'Hipótese não atendida'));
-        const fora = hipotese.linhas.filter(item => item.margem <= 0);
-        resultado.appendChild(criar('p', 'servico-stage-description',
-            `Média dos percentuais anuais: ${formatarPercentual(hipotese.media_percentual)}. A hipótese ${hipotese.aprovado ? 'passa' : 'não passa'} porque a média deve ser inferior a 11,50%. ${fora.length ? `${fora.length} exercício(s) ficaram no limite ou acima dele; primeiro: ${fora[0].ano}.` : 'Todos os exercícios ficaram abaixo do limite anual.'}`));
-        if (numero === 1 && !hipotese.aprovado) {
-            resultado.appendChild(criar('p', 'servico-next-step', dados.ano_atual <= 2027
-                ? 'Hipótese 1 não atendida. A análise seguirá para a Hipótese 2.'
-                : 'Hipótese 1 não atendida. A Hipótese 2, limitada a 2027, não se aplica a este ano.'));
-        }
-        const tabela = criar('div', 'servico-year-table');
-        const cabecalho = criar('div', 'servico-year-head');
-        for (const titulo of ['Ano', 'Serviço', 'RCL projetada', 'Limite 11,5%', 'Margem', 'Situação anual']) cabecalho.appendChild(criar('span', '', titulo));
-        tabela.appendChild(cabecalho);
-        for (const item of hipotese.linhas) {
-            const linhaAno = criar('div', 'servico-year-row');
-            for (const [rotulo, valor] of [
-                ['Ano', item.ano], ['Serviço', formatarMoeda(item.servico_divida)],
-                ['RCL projetada', formatarMoeda(item.rcl_projetada)],
-                ['Limite 11,5%', formatarMoeda(item.limite)],
-                ['Margem', formatarMoeda(item.margem)],
-                ['Situação anual', item.margem > 0 ? 'Abaixo do limite' : 'No limite ou acima'],
-            ]) {
-                const celula = criar('span', '', valor);
-                celula.dataset.label = rotulo;
-                linhaAno.appendChild(celula);
-            }
-            tabela.appendChild(linhaAno);
-        }
-        resultado.appendChild(tabela);
-        if (hipotese.linhas.length > 1) {
-            const grafico = criar('div', 'servico-chart');
-            grafico.appendChild(criar('h5', '', 'Serviço × limite por exercício'));
-            const maior = Math.max(...hipotese.linhas.flatMap(item => [item.servico_divida, item.limite]), 1);
-            for (const item of hipotese.linhas) {
-                const grupo = criar('div', 'servico-chart-year');
-                grupo.appendChild(criar('strong', '', String(item.ano)));
-                for (const [classe, rotulo, valor] of [
-                    ['servico-chart-service', 'Serviço', item.servico_divida],
-                    ['servico-chart-limit', 'Limite', item.limite],
-                ]) {
-                    const faixa = criar('div', 'servico-chart-line');
-                    faixa.appendChild(criar('span', '', rotulo));
-                    const trilho = criar('div', 'servico-chart-track');
-                    const preenchimento = criar('div', classe);
-                    preenchimento.style.width = `${Math.max(0, Math.min(100, valor / maior * 100))}%`;
-                    trilho.appendChild(preenchimento);
-                    faixa.append(trilho, criar('span', '', formatarMoeda(valor)));
-                    grupo.appendChild(faixa);
-                }
-                grafico.appendChild(grupo);
-            }
-            resultado.appendChild(grafico);
-        }
-    }
-    const entender = criar('details', 'servico-explanation');
-    entender.appendChild(criar('summary', '', 'Entenda esta validação'));
-    entender.append(
-        criar('p', '', 'O serviço da dívida soma juros, encargos e amortizações; no exercício anterior, também entram os restos a pagar não processados encontrados no RREO.'),
-        criar('p', '', 'No exercício anterior, o limite é a RCL do exercício × 11,5%. Nas hipóteses futuras, o limite é a RCL projetada × 11,5%. A margem é o limite menos o serviço considerado. Igualdade não atende à regra implementada.'),
-        criar('p', '', 'Nas hipóteses futuras, cada ano usa RCL de referência × fator elevado ao número do ano projetado. A decisão usa a média dos percentuais anuais, com aprovação quando essa média é inferior a 11,5%.'),
-        criar('p', '', 'Referências do projeto: Resolução do Senado Federal nº 43/2001 e Manual para Instrução de Pleitos (MIP).'));
-    resultados.appendChild(entender);
+    const historico = document.createElement('section'); historico.className = 'servico-section';
+    const titulo = document.createElement('h4'); titulo.textContent = `Diagnóstico histórico (${dados.ano_historico ?? 'referência indisponível'}) — não bloqueia a análise prospectiva`;
+    const texto = document.createElement('p');
+    texto.textContent = dados.historico ? `${dados.historico.situacao}. Serviço observado: ${formatarMoeda(dados.historico.servico_divida)}; RCL: ${formatarMoeda(dados.historico.rcl)}; relação: ${formatarPercentual(dados.historico.percentual * 100)}. SICONFI/RREO, Anexos 01/03, 6º bimestre. Restos ausentes seguem a convenção histórica de zero, pendente de validação.` : (dados.historico_motivos || ['Diagnóstico histórico indisponível.']).join(' ');
+    historico.append(titulo, texto); container.appendChild(historico);
+    document.getElementById('servico-dados-base').replaceChildren();
+    document.getElementById('servico-resultados').replaceChildren(criarMemoriaCaed(regra));
 }
 
 function mostrarDetalhesRegra(regra) {
     document.getElementById('modal-feedback').dataset.regraTipo = regra.tipo || '';
     const servico = regra.tipo === 'servico_divida';
+    document.getElementById('mga-entradas').classList.toggle('hidden', regra.tipo !== 'mga');
     document.getElementById('servico-resultados').classList.toggle('hidden', !servico);
     document.getElementById('servico-parametros').classList.toggle('hidden', !servico);
     if (servico) {
-        const fator = regra.dados_calculados?.fator ?? document.getElementById('fator-rcl').value;
-        document.getElementById('valor-fator-resumo').textContent = `· ${fator}`;
-        document.getElementById('servico-fator-fonte').textContent = regra.base_normativa
-            ? `Base normativa informada para a regra: ${regra.base_normativa}. O fator é um parâmetro editável salvo no sistema.`
-            : 'O fator é um parâmetro editável salvo no sistema; não há fonte normativa específica informada para o seu valor.';
+        const fator = regra.dados_calculados?.fator_atualizacao;
+        document.getElementById('valor-fator-resumo').textContent = fator?.valor || 'Não validado';
+        document.getElementById('servico-fator-fonte').textContent = fator?.fonte || 'Fator indisponível; sem fallback legado.';
     }
-    const podeProjetar = servico && regra.dados_calculados?.historico?.aprovado === true;
     const painelProjecoes = document.getElementById('servico-projecoes');
-    painelProjecoes.classList.toggle('hidden', !podeProjetar);
-    painelProjecoes.classList.toggle('servico-etapa-aprovada', podeProjetar && regra.aprovado === true);
-    painelProjecoes.classList.toggle('servico-etapa-reprovada', podeProjetar && regra.aprovado === false);
-    if (podeProjetar) {
-        const primeira = regra.dados_calculados.hipotese_1;
-        document.getElementById('secao-hipotese-2').classList.toggle('hidden', !primeira ||
-            primeira.aprovado || Number(document.getElementById('ano').value) > 2027);
-        preencherReferenciaServico(regra.dados_calculados.referencia_rreo_atual);
-    }
+    painelProjecoes.classList.toggle('hidden', !servico);
+    painelProjecoes.classList.toggle('servico-etapa-aprovada', servico && regra.aprovado === true);
+    painelProjecoes.classList.toggle('servico-etapa-reprovada', servico && regra.aprovado === false);
     document.getElementById('servico-modal-intro').classList.toggle('hidden', !servico);
-    if (servico) {
-        document.getElementById('servico-anos-contexto').textContent =
-            `Ano inicial: ${regra.dados_calculados?.ano_atual}. O ano final define até qual exercício o fluxo será projetado.`;
-    }
+    if (servico) document.getElementById('servico-anos-contexto').textContent = 'Um cronograma anual; médias até o término e até 2027, quando aplicável. Histórico separado da conclusão.';
     const ouroAnterior = regra.tipo === 'regra_ouro_anterior';
     const ouroAtual = regra.tipo === 'regra_ouro_atual';
     const dtp = regra.tipo === 'mga' || regra.tipo === 'dtp' || regra.tipo === 'dcl' || regra.tipo === 'servico_divida' || ouroAnterior || ouroAtual;

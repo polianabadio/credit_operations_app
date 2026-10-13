@@ -1,31 +1,49 @@
 /* Apresentação dos dados fiscais já fornecidos pelo backend. */
 const LIMITES_PRINCIPAIS = [
-    {chave: 'mga', nome: 'Limite anual de operações de crédito — Fluxo', sigla: 'MGA/RCL', descricao: 'Liberações anuais de operações de crédito em relação à RCL projetada.'},
+    {chave: 'mga', nome: 'Margem disponível para operações de crédito', sigla: 'Limite de 16%', descricao: 'Saldo anual antes de incluir a nova operação da simulação.'},
     {chave: 'caed', nome: 'Serviço da dívida', sigla: 'CAED/RCL', descricao: 'Comprometimento da receita com amortizações, juros e encargos da dívida.'},
     {chave: 'dcl', nome: 'Estoque da dívida', sigla: 'DCL/RCL', descricao: 'Dívida Consolidada Líquida em relação à Receita Corrente Líquida.'}
 ];
 
+function resultadoVisualMga(projecao) {
+    if (!projecao.dataAvailability) return 'Inconclusivo — faltam dados anuais';
+    const excede = (projecao.exceededYears || []).length > 0;
+    const resultado = excede ? 'Acima do limite de 16%' : 'Dentro do limite de 16%';
+    if (projecao.publicReference) return `${resultado} — segundo os dados do PVL${projecao.parameterValidated === false ? ' e a taxa informada' : ''}`;
+    if (!projecao.validatedConclusion) return `${resultado} — cenário parcial ou parâmetro a conferir`;
+    return resultado;
+}
+
 function criarTabelaMga(projecao) {
-    const secao = elementoFiscal('section', 'mga-projecao');
-    secao.appendChild(elementoFiscal('h3', '', projecao.verificationStatus || projecao.globalStatus));
-    secao.appendChild(elementoFiscal('p', '', 'MGA = liberações da nova operação + demais operações incluídas. Teto anual = RCL projetada × 16%. MGA/RCL é a parcela da receita; uso do limite = (MGA/RCL) ÷ 16%. Saldo = teto − MGA; saldo negativo indica excesso.'));
-    secao.appendChild(elementoFiscal('p', 'painel-help', 'RSF 43/2001, art. 7º, I, §§ 1º e 6º; MIP 2026.08.21. Cálculo para operações sujeitas ao limite geral de 16%; exceções e dispensas legais específicas exigem conferência do enquadramento. Não há exclusões legais automáticas.'));
+    const estado = !projecao.dataAvailability ? 'mga-pendente'
+        : (projecao.exceededYears || []).length ? 'mga-excedido' : 'mga-atendido';
+    const secao = elementoFiscal('section', `mga-projecao dtp-card ${estado}`);
+    secao.appendChild(elementoFiscal('h3', '', resultadoVisualMga(projecao)));
+    secao.appendChild(elementoFiscal('p', '', 'Quanto do limite anual de operações de crédito esta contratação utiliza? O teto é 16% da RCL projetada. Dele são descontadas as liberações das demais operações e o valor da nova operação previsto para cada ano.'));
     if (projecao.positionOnly) secao.appendChild(elementoFiscal('p', '', 'Posição atual do inventário cadastrado, sem nova operação.'));
     if (projecao.requestedTotal != null) secao.appendChild(elementoFiscal('p', '',
         `Valor requisitado: ${formatarMoeda(projecao.requestedTotal)}`));
     if (projecao.maxRequestedAmountForSchedule != null) secao.appendChild(elementoFiscal('p', '',
         `Valor máximo pelo MGA/RCL mantendo a distribuição proporcional deste cronograma: ${formatarMoeda(projecao.maxRequestedAmountForSchedule)}. Ano restritivo: ${projecao.capacityRestrictingYear}. Não representa capacidade final de contratação.`));
-    else secao.appendChild(elementoFiscal('p', 'painel-help', 'Teto bruto anual = 16% da RCL projetada. Margem disponível para contratação não estabelecida neste cenário.'));
-    if (projecao.dataAvailability) secao.appendChild(elementoFiscal('p', '',
-        `Maior comprometimento: ${formatarPercentual(projecao.maxMgaRcl * 100)} · Ano crítico: ${projecao.criticalYear} · Uso do limite: ${formatarPercentual(projecao.maxLimitUsage * 100)}`));
-    if (projecao.maxLimitUsage != null) {
-        const barra = elementoFiscal('progress');
-        barra.max = 1;
-        barra.value = Math.min(1, projecao.maxLimitUsage);
-        barra.setAttribute('aria-label', `Uso máximo do limite: ${formatarPercentual(projecao.maxLimitUsage * 100)}`);
-        secao.appendChild(barra);
+    const principal = (projecao.rows || []).find(linha => linha.ano === (projecao.criticalYear ?? projecao.ano));
+    if (principal) {
+        secao.appendChild(elementoFiscal('h4', '', `Composição do limite em ${principal.ano}`));
+        const resumo = elementoFiscal('div', 'mga-resumo');
+        for (const [rotulo, valor] of [['Teto anual (16% da RCL)', principal.tetoAnual],
+            ['Liberações das demais operações', principal.scheduledDisbursements],
+            ['Liberação da nova operação', principal.requestedOperation],
+            ['Saldo após a nova operação', principal.margemEstimada]]) {
+            const item = elementoFiscal('div');
+            item.append(elementoFiscal('span', '', rotulo),
+                elementoFiscal('strong', '', valor == null ? 'Dado não informado' : formatarMoeda(valor)));
+            resumo.appendChild(item);
+        }
+        secao.appendChild(resumo);
     }
-    if (projecao.message) secao.appendChild(elementoFiscal('p', 'painel-help', projecao.message));
+    secao.appendChild(elementoFiscal('p', 'painel-help', 'Saldo = teto anual − demais liberações − nova operação. Saldo negativo indica excesso. Esse saldo pertence ao exercício e não representa, sozinho, o valor máximo de um contrato.'));
+    if (projecao.publicReference) secao.appendChild(elementoFiscal('p', 'mga-ressalva',
+        'Demais liberações obtidas no SADIPEM/PVL. O resultado usa os valores declarados nesse documento; é necessário conferir se existem operações posteriores ou não incluídas.'));
+    else if (!projecao.validatedConclusion && projecao.message) secao.appendChild(elementoFiscal('p', 'mga-ressalva', projecao.message));
     if (projecao.exceededYears.length) secao.appendChild(elementoFiscal('p', 'fluxo-indisponivel',
         `Exercícios não enquadrados: ${projecao.exceededYears.join(', ')}`));
     const rolagem = elementoFiscal('div', 'mga-tabela-rolagem');
@@ -34,7 +52,7 @@ function criarTabelaMga(projecao) {
     const tabela = elementoFiscal('table', 'mga-tabela');
     const cabecalho = elementoFiscal('thead');
     const titulos = elementoFiscal('tr');
-    for (const titulo of ['Ano', 'Operação pleiteada', 'Outras liberações', 'MGA', 'RCL projetada', 'Teto anual (16%)', 'Saldo', 'Margem após outras', 'MGA/RCL', 'Uso do limite', 'Situação']) {
+    for (const titulo of ['Ano', 'RCL projetada', 'Teto anual (16%)', 'Demais liberações', 'Nova operação', 'Total de liberações (MGA)', 'Saldo após a operação']) {
         const th = elementoFiscal('th', '', titulo);
         th.scope = 'col';
         titulos.appendChild(th);
@@ -44,11 +62,12 @@ function criarTabelaMga(projecao) {
     const moeda = valor => valor == null ? 'Não disponível' : formatarMoeda(valor);
     const percentual = valor => valor == null ? 'Não disponível' : formatarPercentual(valor * 100);
     for (const linha of projecao.rows) {
-        const tr = elementoFiscal('tr', linha.ano === projecao.criticalYear ? 'mga-ano-critico' : '');
-        for (const texto of [String(linha.ano), moeda(linha.requestedOperation), moeda(linha.scheduledDisbursements),
-            moeda(linha.mga), moeda(linha.rclProjetada), moeda(linha.tetoAnual), moeda(linha.margemEstimada),
-            moeda(linha.availableForRequestedOperation), percentual(linha.mgaRcl), percentual(linha.limitUsage),
-            `${projecao.evaluationScope === 'requested_operation_only' ? 'Cenário parcial · ' : ''}${linha.verificationStatus || linha.situacao}`]) {
+        const estadoLinha = linha.mga == null ? 'mga-pendente'
+            : (projecao.exceededYears || []).includes(linha.ano) ? 'mga-excedido' : 'mga-atendido';
+        const tr = elementoFiscal('tr', `${estadoLinha}${linha.ano === projecao.criticalYear ? ' mga-ano-critico' : ''}`);
+        for (const texto of [String(linha.ano), moeda(linha.rclProjetada), moeda(linha.tetoAnual),
+            moeda(linha.scheduledDisbursements), moeda(linha.requestedOperation),
+            moeda(linha.mga), moeda(linha.margemEstimada)]) {
             tr.appendChild(elementoFiscal('td', '', texto));
         }
         const fontes = linha.sources || {};
@@ -61,14 +80,25 @@ function criarTabelaMga(projecao) {
     const memoria = elementoFiscal('details', 'painel-details');
     memoria.appendChild(elementoFiscal('summary', '', 'Fontes e memória de cálculo'));
     const origem = projecao.sources || {};
-    memoria.appendChild(elementoFiscal('p', '', `Parâmetro: multiplicador ${origem.projectionMultiplier ?? '?'}; taxa decimal ${origem.projectionFactor ?? '?'}. Vigência: ${origem.projectionFactorEffectiveFrom || 'pendente'}. ${origem.projectionFactorMeaning || ''}. Validação: ${origem.projectionFactorValidated ? 'confirmada' : 'pendente'}.`));
+    memoria.appendChild(elementoFiscal('p', '', 'Base: RSF 43/2001, art. 7º, I, §§ 1º e 6º. A regra considera os ingressos de crédito por exercício. Exceções e dispensas exigem conferência jurídica; a aplicação não as exclui automaticamente.'));
+    if (projecao.publicReference) {
+        const publica = projecao.publicReference;
+        const snapshot = publica.snapshot || {};
+        memoria.appendChild(elementoFiscal('p', '', `Liberações segundo o PVL ${snapshot.numeroPvl || snapshot.idPleito || '?'} · referência ${snapshot.data || snapshot.dataProtocolo || 'não informada'} · consulta ${publica.consultadoEm || 'não informada'}. Cobertura integral não confirmada.`));
+        for (const motivo of publica.motivos || []) memoria.appendChild(elementoFiscal('p', 'painel-help', motivo));
+    }
+    const taxa = origem.projectionFactor == null ? 'não informada' :
+        `${new Intl.NumberFormat('pt-BR', {maximumFractionDigits:9}).format(origem.projectionFactor * 100)}%`;
+    memoria.appendChild(elementoFiscal('p', '', `Taxa anual utilizada na projeção da RCL: ${taxa}. Vigência: ${origem.projectionFactorEffectiveFrom || 'a conferir'}. ${origem.projectionFactorMeaning || ''}. Parâmetro ${origem.projectionFactorValidated ? 'validado' : 'pendente de validação'}.`));
     if (origem.projectionFactorSource?.startsWith('https://')) {
         const link = elementoFiscal('a', 'jornada-link', 'Consultar fonte do parâmetro');
         link.href = origem.projectionFactorSource; link.target = '_blank'; link.rel = 'noopener'; memoria.appendChild(link);
     }
-    memoria.appendChild(elementoFiscal('p', '', `Demais liberações: ${projecao.otherDisbursementsState === 'assumed_zero' ? 'zero assumido somente para esta hipótese' : projecao.otherDisbursementsState === 'confirmed' ? 'inventário e zeros conhecidos confirmados' : 'dados desconhecidos'}. Operação excluída do inventário para evitar duplicidade: ${projecao.excludedOperationIdentifier || 'nenhuma'}.`));
+    memoria.appendChild(elementoFiscal('p', '', `Demais liberações: ${projecao.otherDisbursementsState === 'public_snapshot' ? 'valores declarados/listados no PVL, com cobertura parcial' : projecao.otherDisbursementsState === 'assumed_zero' ? 'zero assumido somente para esta hipótese' : projecao.otherDisbursementsState === 'confirmed' ? 'inventário e zeros conhecidos confirmados' : 'dados desconhecidos'}. Operação excluída do inventário para evitar duplicidade: ${projecao.excludedOperationIdentifier || 'nenhuma'}.`));
     for (const linha of projecao.rows) {
         const fonte = linha.sources || {};
+        if (fonte.publicReference?.memoria_exata?.fonteZero) memoria.appendChild(elementoFiscal('p', 'painel-help',
+            `${linha.ano}: o PVL declara ausência de liberações previstas de operações já contratadas.`));
         memoria.appendChild(elementoFiscal('p', '', `${linha.ano}: RCL base ${moeda(fonte.rclBaseValue)} · ${fonte.rclSource || 'fonte indisponível'} · ${fonte.rclStatement || ''} ${fonte.rclAnnex || ''} · exercício ${fonte.rclExercise || ''} · bimestre ${fonte.rclReferencePeriod || ''} · consulta ${fonte.rclQueriedAt || 'não disponível'} · fator anual ${percentual(fonte.projectionFactor)} · ${fonte.projectionFactorSource || 'fonte do fator indisponível'} · atualização proporcional ${fonte.proportionalMonths ?? '?'} meses. Cobertura: ${fonte.scheduledOperationsSource || 'não confirmada'} · atualização ${fonte.scheduledOperationsUpdatedAt || 'não disponível'}.`));
         for (const op of fonte.operations || []) memoria.appendChild(elementoFiscal('p', 'painel-card-ref',
             `${op.identificador}: ${moeda(op.amount)} · ${op.source} · ${op.updatedAt}`));
@@ -102,7 +132,7 @@ function dadosLimite(painel, config) {
         return {limite: fluxo?.percentualLimite ?? painel.limites_referencia?.[config.sigla],
             limiteMonetario: fluxo?.tetoReferencia ?? painel.limite_mga_publicado?.valor ?? null,
             referenciaLimite: painel.limite_mga_publicado, referenciaRcl: painel.rcl,
-            fluxo, sadipem: painel.sadipem, valor: fluxo?.dataAvailability && fluxo?.parameterValidated !== false ? fluxo.maxMgaRcl * 100 : null};
+            fluxo, margemPublica: painel.margemPublica, sadipem: painel.sadipem, valor: fluxo?.dataAvailability && fluxo?.parameterValidated !== false ? fluxo.maxMgaRcl * 100 : null};
     }
     return publicado ? {...publicado, limite: publicado.limite ?? painel.limites_referencia?.[config.sigla]} :
         {valor: null, limite: painel.limites_referencia?.[config.sigla]};
@@ -112,6 +142,62 @@ function referenciaFiscal(dado) {
     if (!dado?.ano) return 'Sem período publicado';
     const periodo = dado.periodicidade === 'B' ? 'bimestre' : 'quadrimestre';
     return `${dado.periodo ? `${dado.periodo}º ${periodo} de ` : 'Publicação de '}${dado.ano}${dado.origem ? ` · ${dado.origem}` : ''}`;
+}
+
+function linhaMargemCredito(dado, ano = dado.fluxo?.ano) {
+    const fluxo = dado.fluxo;
+    if (fluxo?.positionOnly !== true || fluxo.parameterValidated !== true) return null;
+    const linha = fluxo.rows?.find(item => item.ano === ano);
+    return linha?.dadosCompletos && Number.isFinite(linha.margemEstimada) ? linha : null;
+}
+
+function linhaMargemPublica(dado, ano = dado.fluxo?.ano) {
+    if (dado.margemPublica?.status !== 'Referência pública') return null;
+    const linha = dado.margemPublica.rows?.find(item => item.ano === ano);
+    return Number.isFinite(linha?.margemEstimada) ? {...linha, referenciaPublica: true} : null;
+}
+
+function criarDetalheMargemCredito(dado) {
+    const secao = elementoFiscal('section', 'fluxo-limite-parte margem-credito');
+    const atual = linhaMargemCredito(dado) || linhaMargemPublica(dado);
+    secao.append(elementoFiscal('h4', '', 'Margem antes da nova operação'),
+        elementoFiscal('strong', '', atual ? formatarMoeda(atual.margemEstimada) : 'Margem disponível não determinada'),
+        elementoFiscal('p', 'painel-help', 'Margem disponível = teto anual de 16% da RCL projetada − liberações das operações existentes incluídas. O possível empréstimo será acrescentado na Simulação.'),
+        elementoFiscal('p', 'painel-card-ref', 'Art. 7º, inciso I, da RSF 43/2001'));
+    const rolagem = elementoFiscal('div', 'mga-tabela-rolagem');
+    rolagem.tabIndex = 0;
+    rolagem.setAttribute('aria-label', 'Margem anual disponível antes da nova operação');
+    const tabela = elementoFiscal('table', 'mga-tabela');
+    const head = elementoFiscal('tr');
+    for (const titulo of ['Ano', 'RCL projetada', 'Teto anual (16%)', 'Liberações existentes incluídas', 'Margem disponível']) head.appendChild(elementoFiscal('th', '', titulo));
+    const thead = elementoFiscal('thead'); thead.appendChild(head); tabela.appendChild(thead);
+    const corpo = elementoFiscal('tbody');
+    const moeda = valor => valor == null ? 'Não disponível' : formatarMoeda(valor);
+    if (dado.fluxo?.positionOnly === true) for (const item of dado.fluxo.rows || []) {
+        const linha = elementoFiscal('tr');
+        const validada = linhaMargemCredito(dado, item.ano) || linhaMargemPublica(dado, item.ano);
+        for (const texto of [String(item.ano), moeda(validada?.rclProjetada ?? item.rclProjetada), moeda(validada?.tetoAnual ?? item.tetoAnual), moeda(validada?.scheduledDisbursements ?? item.scheduledDisbursements), validada ? moeda(validada.margemEstimada) : 'Não determinada']) linha.appendChild(elementoFiscal('td', '', texto));
+        corpo.appendChild(linha);
+    }
+    tabela.appendChild(corpo); rolagem.appendChild(tabela); secao.appendChild(rolagem);
+    if (!atual) {
+        secao.appendChild(elementoFiscal('p', 'painel-help', 'Faltam dados confirmados das liberações existentes ou parâmetro validado. Ausência não significa zero.'));
+        for (const motivo of dado.fluxo?.unavailabilityReasons || []) secao.appendChild(elementoFiscal('p', 'painel-help', motivo));
+        for (const motivo of dado.margemPublica?.motivos || []) secao.appendChild(elementoFiscal('p', 'painel-help', motivo));
+    }
+    if (atual?.referenciaPublica) {
+        const publica = dado.margemPublica;
+        secao.appendChild(elementoFiscal('p', 'painel-card-ref', `Saldo segundo o PVL ${publica.snapshot?.numeroPvl || publica.snapshot?.idPleito} · referência ${publica.snapshot?.data || 'não informada'} · consulta ${publica.consultadoEm || 'não informada'}.`));
+        for (const motivo of publica.motivos || []) secao.appendChild(elementoFiscal('p', 'painel-help', motivo));
+        if (atual.fonteZero) secao.appendChild(elementoFiscal('p', 'painel-help', `Zero declarado pela fonte: ${atual.fonteZero}.`));
+        secao.appendChild(elementoFiscal('p', 'painel-help', `Liberações contratadas declaradas: ${moeda(atual.liberacoesContratadas)} · Não contratadas listadas no PVL: ${moeda(atual.liberacoesNaoContratadasListadas)}.`));
+    }
+    const fontes = dado.fluxo?.sources || {};
+    secao.appendChild(elementoFiscal('p', 'painel-card-ref', `RCL: ${fontes.rclSource || 'fonte não disponível'} · exercício ${fontes.rclExercise || 'não informado'} · bimestre ${fontes.rclReferencePeriod || 'não informado'} · Liberações: ${atual?.referenciaPublica ? 'SADIPEM / declaração do PVL' : fontes.scheduledOperationsSource || 'cobertura não confirmada'}.`));
+    const sadipem = dado.sadipem;
+    if (sadipem?.liberacoesContratadasSadipem != null) secao.appendChild(elementoFiscal('p', 'painel-help', `Referência pública parcial: ${formatarMoeda(sadipem.liberacoesContratadasSadipem)} em liberações contratadas no PVL ${sadipem.snapshot?.numeroPvl || 'não informado'}. Esse valor não confirma a cobertura integral da margem.`));
+    secao.appendChild(elementoFiscal('p', 'painel-help', 'A margem é anual e pode ser negativa. Não representa, isoladamente, o valor total máximo de um contrato.'));
+    return secao;
 }
 
 function criarResumoLimite(config, dado) {
@@ -126,25 +212,16 @@ function criarResumoLimite(config, dado) {
     sigla.title = config.descricao;
     if (config.chave === 'mga') {
         card.append(elementoFiscal('h3', '', config.nome), sigla);
+        const atual = linhaMargemCredito(dado) || linhaMargemPublica(dado);
+        resumo(atual?.referenciaPublica ? 'Margem segundo o PVL' : 'Margem disponível no exercício', atual ? formatarMoeda(atual.margemEstimada) : 'Não determinada');
         resumo('Limite legal', `${formatarPercentual(dado.limite)} da RCL projetada`);
-        if (dado.fluxo?.dataAvailability) {
-            resumo('Maior comprometimento projetado', formatarPercentual(dado.fluxo.maxMgaRcl * 100));
-            resumo('Utilização do limite', formatarPercentual(dado.fluxo.maxLimitUsage * 100));
-            resumo('Ano crítico', String(dado.fluxo.criticalYear));
-            resumo('Status', dado.fluxo.globalStatus);
-        } else {
-            resumo('Teto bruto correspondente', dado.limiteMonetario == null ? 'Dado indisponível' : formatarMoeda(dado.limiteMonetario));
-            card.appendChild(elementoFiscal('p', 'painel-help', `Projeção anual indisponível: ${(dado.fluxo?.unavailabilityReasons || ['faltam dados das liberações programadas das demais operações']).join(' ')}`));
-        }
+        if (atual) resumo('Exercício', String(atual.ano));
         card.appendChild(elementoFiscal('p', 'limite-resumo-descricao',
-            'Verifica as liberações previstas para cada exercício em relação à RCL projetada.'));
+            'Saldo do teto anual após as liberações das operações existentes incluídas.'));
         const [status, classe] = badgeQualidade(dado, 'mga');
         card.appendChild(elementoFiscal('span', `qualidade-badge ${classe}`, status));
-        card.appendChild(elementoFiscal('p', 'limite-resumo-nota',
-            'O teto do RGF usa a RCL publicada; a verificação do pleito usa a RCL projetada e os cronogramas de liberações.'));
-        if (dado.referenciaLimite || dado.referenciaRcl) card.appendChild(elementoFiscal('span', 'painel-card-ref',
-            dado.referenciaLimite ? `Limite publicado: ${referenciaFiscal(dado.referenciaLimite)}`
-                : `RCL: ${referenciaFiscal({...dado.referenciaRcl, periodicidade: 'B'})}`));
+        if (!atual) card.appendChild(elementoFiscal('p', 'limite-resumo-nota',
+            'A margem depende da RCL projetada e da cobertura das demais liberações; o teto bruto não é margem disponível.'));
         return card;
     }
     card.append(elementoFiscal('h3', '', config.nome), sigla);
@@ -199,14 +276,10 @@ function criarResumoLimite(config, dado) {
 
 function badgeQualidade(dado, chave) {
     if (chave === 'mga') {
-        if (dado.fluxo?.globalStatus) return [dado.fluxo.globalStatus,
-            dado.fluxo.globalStatus === 'Não Enquadrado' ? 'excedido' : dado.fluxo.validatedConclusion ? 'atual' : 'neutro'];
-        if (dado.sadipem?.statusDadosMga === 'Partial') return ['Dados parciais', 'neutro'];
-        const status = dado.fluxo?.status;
-        return status === 'dentro_do_limite' ? ['Dentro do limite', 'atual'] :
-            status === 'proximo_ao_limite' ? ['Próximo ao limite', 'atencao'] :
-            status === 'acima_do_limite' ? ['Acima do limite', 'excedido'] :
-            ['Comprometimento não disponível', 'neutro'];
+        const atual = linhaMargemCredito(dado);
+        if (!atual && dado.margemPublica?.status === 'Consultando') return ['Consultando SADIPEM…', 'neutro'];
+        if (!atual && linhaMargemPublica(dado)) return ['Referência SADIPEM · conferir cobertura', 'neutro'];
+        return atual ? [atual.margemEstimada < 0 ? 'Sem margem · limite excedido' : 'Margem calculada', atual.margemEstimada < 0 ? 'excedido' : 'atual'] : ['Margem não determinada', 'neutro'];
     }
     if (dado.historico) return ['Histórico', 'historico'];
     return dado.valor == null ? ['Incompleto', 'incompleto'] : ['Atual', 'atual'];
@@ -231,99 +304,7 @@ function criarDetalheLimitePagina(config, dado, exercicioAtual) {
         valores.appendChild(item);
     };
     if (config.chave === 'mga') {
-        conteudo.append(elementoFiscal('p', 'painel-help',
-            `Verifica o montante de liberações previsto para cada exercício em relação à RCL projetada. O limite legal é de ${formatarPercentual(dado.limite)} da RCL.`),
-            elementoFiscal('p', 'painel-card-ref', 'Art. 7º, inciso I, da RSF 43/2001'));
-        if (dado.fluxo?.rows) conteudo.appendChild(criarTabelaMga(dado.fluxo));
-        const normativo = elementoFiscal('section', 'fluxo-limite-parte');
-        normativo.appendChild(elementoFiscal('h4', '', 'Limite normativo'));
-        linha('RCL de referência', dado.fluxo?.rclReferencia == null ? 'Dado indisponível' : formatarMoeda(dado.fluxo.rclReferencia));
-        linha('Limite legal', formatarPercentual(dado.limite));
-        linha('Teto de referência · RGF', dado.limiteMonetario == null ? 'Dado indisponível' : formatarMoeda(dado.limiteMonetario));
-        if (dado.fluxo?.tetoAnual != null) {
-            linha('RCL projetada', formatarMoeda(dado.fluxo.rclProjetada));
-            linha('Teto anual calculado', formatarMoeda(dado.fluxo.tetoAnual));
-        }
-        normativo.append(valores, elementoFiscal('p', 'painel-help',
-            'Teto de referência = RCL ajustada publicada × 16%. No pleito, teto anual = RCL projetada × 16%.'));
-        conteudo.appendChild(normativo);
-        const comprometimento = elementoFiscal('section', 'fluxo-limite-parte');
-        comprometimento.appendChild(elementoFiscal('h4', '', 'Comprometimento do limite'));
-        if (dado.fluxo?.dadosCompletos) {
-            const itens = elementoFiscal('div', 'limite-valores');
-            for (const [rotulo, valor] of [
-                ['Liberações computáveis no exercício', formatarMoeda(dado.fluxo.mga)],
-                ['Comprometimento da RCL projetada', formatarPercentual(dado.fluxo.percentualMgaRcl)],
-                ['Margem estimada para novas liberações', formatarMoeda(dado.fluxo.margemEstimada)]
-            ]) {
-                const item = elementoFiscal('div');
-                item.append(elementoFiscal('span', '', rotulo), elementoFiscal('strong', '', valor));
-                itens.appendChild(item);
-            }
-            comprometimento.appendChild(itens);
-        } else {
-            const sadipem = dado.sadipem;
-            if (sadipem?.liberacoesContratadasSadipem != null) {
-                const itens = elementoFiscal('div', 'limite-valores');
-                const item = elementoFiscal('div');
-                item.append(elementoFiscal('span', '', 'Liberações previstas de operações contratadas'),
-                    elementoFiscal('strong', '', formatarMoeda(sadipem.liberacoesContratadasSadipem)));
-                itens.appendChild(item);
-                comprometimento.append(itens, elementoFiscal('span', 'qualidade-badge neutro', 'Dados parciais'));
-                if (sadipem.percentualContratadoRclReferencia != null) comprometimento.appendChild(
-                    elementoFiscal('p', 'painel-help', `${formatarPercentual(sadipem.percentualContratadoRclReferencia)} da RCL publicada de referência; não é o MGA/RCL projetado.`));
-                comprometimento.appendChild(elementoFiscal('p', 'painel-help',
-                    'O valor representa as liberações previstas de operações já contratadas registradas no snapshot do SADIPEM. Operações ainda não contratadas e uma eventual nova operação também integram o MGA e podem reduzir a margem efetiva.'));
-            } else {
-                comprometimento.appendChild(elementoFiscal('strong', 'fluxo-indisponivel', 'Comprometimento não disponível'));
-                const motivo = sadipem?.motivo;
-                comprometimento.appendChild(elementoFiscal('p', 'painel-help',
-                    motivo === 'API_ERROR' ? 'A consulta ao SADIPEM falhou. Os dados fiscais do SICONFI permanecem disponíveis.' :
-                    motivo === 'NO_PVL' ? 'Nenhum PVL elegível do Estado de Goiás foi encontrado na consulta pública.' :
-                    motivo === 'NO_RELEASES_REPORTED' ? 'O snapshot não informou liberações para este exercício. Isso não comprova valor zero.' :
-                    motivo === 'NO_DATA' ? 'O PVL selecionado não contém cronograma de liberações contratadas para este exercício; isso não comprova valor zero.' :
-                    'A margem efetiva depende dos cronogramas anuais de operações contratadas, não contratadas e da operação analisada.'));
-            }
-            if (sadipem?.liberacoesNaoContratadasSadipem != null) comprometimento.appendChild(
-                elementoFiscal('p', 'painel-help', `Liberações anuais de PVLs não contratados listados no snapshot: ${formatarMoeda(sadipem.liberacoesNaoContratadasSadipem)}. A cobertura integral não foi confirmada.`));
-            if (sadipem?.snapshot?.valor != null) {
-                const pvl = sadipem.snapshot;
-                const moeda = pvl.moeda || 'Moeda não informada';
-                const valorPvl = /dólar dos eua|dolar dos eua/i.test(moeda)
-                    ? new Intl.NumberFormat('pt-BR', {style: 'currency', currency: 'USD'}).format(pvl.valor)
-                    : /^real$/i.test(moeda) ? formatarMoeda(pvl.valor)
-                    : `${new Intl.NumberFormat('pt-BR', {maximumFractionDigits: 2}).format(pvl.valor)} ${moeda}`;
-                const dadosPvl = elementoFiscal('div', 'fluxo-dados-pvl');
-                dadosPvl.append(elementoFiscal('strong', '', 'Operação registrada no PVL mais recente'),
-                    elementoFiscal('p', '', `${valorPvl} · valor total do pleito, não liberação anual${pvl.finalidade ? ` · ${pvl.finalidade}` : ''}`));
-                if (pvl.credor || pvl.tipoOperacao) dadosPvl.appendChild(elementoFiscal('p', 'painel-card-ref',
-                    [pvl.tipoOperacao, pvl.credor].filter(Boolean).join(' · ')));
-                comprometimento.appendChild(dadosPvl);
-            }
-            if (sadipem?.snapshot) comprometimento.appendChild(elementoFiscal('p', 'painel-card-ref',
-                `SADIPEM · PVL ${sadipem.snapshot.numeroPvl || sadipem.snapshot.idPleito} · ID ${sadipem.snapshot.idPleito} · ${sadipem.snapshot.data || 'data não informada'} · ${sadipem.snapshot.status || 'status não informado'}`));
-            if (sadipem?.ultimaReferenciaHistorica) {
-                const ref = sadipem.ultimaReferenciaHistorica;
-                const historico = elementoFiscal('div', 'fluxo-dados-pvl fluxo-historico');
-                historico.append(elementoFiscal('strong', '', `Último cronograma localizado · ${ref.ano} · referência histórica`),
-                    elementoFiscal('p', '', `${formatarMoeda(ref.valor)} em liberações contratadas previstas no PVL ${ref.numeroPvl || ref.idPleito}. Esse valor não representa o comprometimento de ${sadipem.ano}.`),
-                    elementoFiscal('span', 'painel-card-ref', `SADIPEM · ID ${ref.idPleito} · snapshot de ${ref.dataSnapshot || 'data não informada'}`));
-                comprometimento.appendChild(historico);
-            }
-            comprometimento.appendChild(elementoFiscal('p', 'painel-help', 'A API pública não fornece todos os componentes anuais necessários para afirmar uma margem efetiva.'));
-        }
-        conteudo.appendChild(comprometimento);
-        if (dado.fluxo?.exercicios?.length > 1) {
-            const projecao = elementoFiscal('details', 'fluxo-projecao');
-            projecao.appendChild(elementoFiscal('summary', '', 'Ver projeção por exercício'));
-            for (const item of dado.fluxo.exercicios) projecao.appendChild(elementoFiscal('p', '',
-                `${item.ano} · RCL projetada: ${item.rclProjetada == null ? 'não disponível' : formatarMoeda(item.rclProjetada)} · Liberações: ${item.mga == null ? 'não disponíveis' : formatarMoeda(item.mga)} · MGA/RCL: ${item.percentualMgaRcl == null ? 'não disponível' : formatarPercentual(item.percentualMgaRcl)} · Margem: ${item.margemEstimada == null ? 'não disponível' : formatarMoeda(item.margemEstimada)}`));
-            conteudo.appendChild(projecao);
-        }
-        conteudo.appendChild(elementoFiscal('p', 'painel-help fluxo-conclusao',
-            'O limite de 16% restringe o montante anual de liberações de operações de crédito em relação à RCL projetada. O teto bruto não representa, isoladamente, a capacidade para novas contratações. A margem efetiva depende das liberações de operações já contratadas, em contratação e da operação analisada.'));
-        conteudo.appendChild(elementoFiscal('p', 'painel-card-ref',
-            `Fonte da RCL: SICONFI / RREO${dado.referenciaRcl ? ` · ${referenciaFiscal({...dado.referenciaRcl, periodicidade: 'B'})}` : ''} · Comprometimento: ${dado.fluxo?.dadosCompletos ? 'cronogramas informados para todos os grupos' : dado.sadipem ? 'SADIPEM / snapshot consultado' : 'SADIPEM / consulta pendente'}`));
+        conteudo.appendChild(criarDetalheMargemCredito(dado));
     } else {
         linha(dado.historico ? 'Última referência disponível' : config.chave === 'dcl' ? 'DCL/RCL atual' : 'Atual',
             dado.valor == null ? 'Dado indisponível' : formatarPercentual(dado.valor));
@@ -394,21 +375,6 @@ function renderizarVisaoFiscal(painel) {
         indicadores.appendChild(card);
     }
 
-    const mga = dadosLimite(painel, LIMITES_PRINCIPAIS[0]);
-    const caed = dadosLimite(painel, LIMITES_PRINCIPAIS[1]);
-
-    const interpretacao = document.getElementById('limites-interpretacao-itens');
-    interpretacao.replaceChildren();
-    for (const [titulo, texto] of [
-        [`Fluxo — ${formatarPercentual(mga.limite)} da RCL`, 'Controla o volume de operações de crédito considerado no exercício.'],
-        [`Serviço — ${formatarPercentual(caed.limite)} da RCL`, 'Controla o comprometimento da receita com amortizações, juros e encargos.'],
-        ['Estoque — DCL/RCL', 'Controla o nível acumulado de endividamento.']
-    ]) {
-        const item = elementoFiscal('li');
-        item.append(elementoFiscal('strong', '', titulo), elementoFiscal('span', '', texto));
-        interpretacao.appendChild(item);
-    }
-
     const tetoOuro = document.getElementById('ouro-teto-dashboard');
     tetoOuro.replaceChildren();
     const ouroAnterior = painel.regra_ouro?.[0];
@@ -456,18 +422,5 @@ function renderizarVisaoFiscal(painel) {
         homeLimites.appendChild(criarResumoLimite(config, dado));
         detalhes.appendChild(criarDetalheLimitePagina(config, dado, painel.exercicio));
     }
-    const impedimentos = document.getElementById('fator-limitante-impedimentos');
-    impedimentos.replaceChildren();
-    for (const config of LIMITES_PRINCIPAIS) {
-        const dado = dadosLimite(painel, config);
-        const situacao = config.chave === 'mga' && dado.valor == null ? 'cronogramas de liberações não consolidados' :
-            dado.historico ? `último dado disponível referente a ${dado.ano}` :
-            dado.valor == null ? 'dado atual não encontrado' : 'dado atual disponível';
-        impedimentos.appendChild(elementoFiscal('li', '', `${config.sigla}: ${situacao}`));
-    }
-    document.getElementById('fator-limitante-estado').textContent = 'Não determinável com os dados atuais';
-    document.getElementById('fator-limitante-texto').textContent =
-        'Não é possível identificar com segurança qual limite é atualmente mais restritivo porque nem todos os indicadores possuem informações atuais e completas.';
-    document.getElementById('fator-limitante-conclusao').textContent =
-        'Por esse motivo, a aplicação não deve apontar um fator limitante atual com base apenas nos dados disponíveis.';
+
 }

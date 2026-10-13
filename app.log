@@ -178,3 +178,8 @@
 2026-10-06 09:08:45,513 - SimuladorLogger - ERROR - Falha na sincronização. API indisponível []
 2026-10-06 09:09:24,130 - SimuladorLogger - ERROR - Falha na sincronização. API indisponível []
 2026-10-06 09:13:59,825 - SimuladorLogger - ERROR - Falha na sincronização. API indisponível []
+2026-10-07 11:31:54,052 - SimuladorLogger - CRITICAL - Erro fatal na análise da operação: 'NoneType' object has no attribute 'query'  []
+2026-10-07 14:31:42,018 - SimuladorLogger - ERROR - Não foi possível avaliar as liberações; demais resultados preservados. Confira o período das liberações: o ano final deve ser igual ou posterior ao inicial, a partir do exercício da análise. [modulo=app.py]
+2026-10-07 14:31:45,476 - SimuladorLogger - ERROR - Não foi possível avaliar as liberações; demais resultados preservados. Confira o período das liberações: o ano final deve ser igual ou posterior ao inicial, a partir do exercício da análise. [modulo=app.py]
+2026-10-07 14:32:20,794 - SimuladorLogger - ERROR - Não foi possível avaliar as liberações; demais resultados preservados. Preencha todas as liberações anuais do contrato, inclusive zeros conhecidos. [modulo=app.py]
+2026-10-07 15:31:38,632 - SimuladorLogger - ERROR - Não foi possível avaliar as liberações; demais resultados preservados. Preencha todas as liberações anuais do contrato, inclusive zeros conhecidos. [modulo=app.py]

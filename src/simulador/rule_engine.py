@@ -1,22 +1,25 @@
 from datetime import datetime
-# Importe as novas funções de acesso a dados
-from .data_access import (
-    obter_dados_rreo_para_analise, 
-    obter_dados_rgf_para_analise
-)
 
 from .config import carregar_modelo_yaml
-from .logger import log
-from .data_access import obter_registros_dtp
-from .dtp import consolidar_dtp
+
+# Importe as novas funções de acesso a dados
+from .data_access import (
+    COLUNA_LIQUIDADA,
+    COLUNA_RESTOS,
+    CONTAS_SERVICO_DIVIDA,
+    obter_dados_rgf_para_analise,
+    obter_dados_rreo_para_analise,
+    obter_rcl_ajustada_endividamento,
+    obter_rcl_caed,
+    obter_registros_dcl,
+    obter_registros_dtp,
+    obter_servico_divida_exercicio_anterior,
+)
 from .dcl import avaliar_dcl
-from .data_access import obter_registros_dcl
-from .data_access import obter_rcl_ajustada_endividamento
-from .data_access import (obter_servico_divida_exercicio_anterior,
-                          CONTAS_SERVICO_DIVIDA, COLUNA_LIQUIDADA, COLUNA_RESTOS)
-from .servico_divida import (avaliar_exercicio_anterior, projetar_anos,
-                             avaliar_alternativas, decimal_nao_negativo)
+from .dtp import consolidar_dtp
+from .logger import log
 from .parametros_simulacao import obter_fator_projecao
+from .servico_divida import avaliar_caed, avaliar_exercicio_anterior, memoria_decimal
 
 # --- CAMADA 2: MOTOR DE REGRAS ---
 
@@ -241,117 +244,44 @@ ORDEM_EXIBICAO = {
 
 # --- CAMADA 3: ORQUESTRAÇÃO E INTERFACE PÚBLICA ---
 def _resultado_servico_divida(ano, entrada=None):
-    """Compõe a memória da regra sem aprovar quando faltarem lançamentos."""
-    rcl_historica = obter_rcl_ajustada_endividamento(ano - 1)
-    despesas = obter_servico_divida_exercicio_anterior(ano - 1)
-    rcl_atual = obter_rcl_ajustada_endividamento(ano)
-    despesas_referencia = obter_servico_divida_exercicio_anterior(ano)
-    if entrada is not None and not isinstance(entrada, dict):
-        raise ValueError('Dados da regra inválidos')
-    dados = {
-        'ano_historico': ano - 1, 'periodo_historico': despesas['periodo'] if despesas else None,
-        'rcl_historica': float(rcl_historica['valor']) if rcl_historica else None,
-        'periodo_rcl_historica': rcl_historica['periodo'] if rcl_historica else None,
-        'rcl_atual': float(rcl_atual['valor']) if rcl_atual else None,
-        'periodo_rcl_atual': rcl_atual['periodo'] if rcl_atual else None,
-        'ano_atual': ano,
-    }
-    if despesas_referencia:
-        referencia_juros = despesas_referencia['contas'][CONTAS_SERVICO_DIVIDA[0]]
-        referencia_amortizacao = despesas_referencia['contas'][CONTAS_SERVICO_DIVIDA[1]]
-        dados['referencia_rreo_atual'] = {
-            'ano': ano, 'periodo': despesas_referencia['periodo'],
-            'juros_encargos': str(referencia_juros[COLUNA_LIQUIDADA] +
-                                  (referencia_juros[COLUNA_RESTOS] or 0)),
-            'amortizacao': str(referencia_amortizacao[COLUNA_LIQUIDADA] +
-                                (referencia_amortizacao[COLUNA_RESTOS] or 0)),
-            'origem': 'SICONFI/RREO-Anexo 01',
-        }
-    base = {'tipo': 'servico_divida', 'nome': 'Projeção do Serviço da Dívida',
-            'dados_calculados': dados}
-    def pendente(motivo):
-        return {**base, 'aprovado': None, 'status': 'Sem informação', 'descricao': motivo}
-    if not rcl_historica or not despesas:
-        return pendente('Faltam dados do último RREO do exercício anterior para avaliar o serviço da dívida.')
-    if rcl_historica['periodo'] != despesas['periodo']:
-        return pendente('RCL e despesas do exercício anterior pertencem a bimestres diferentes.')
-    juros = despesas['contas'][CONTAS_SERVICO_DIVIDA[0]]
-    amortizacao = despesas['contas'][CONTAS_SERVICO_DIVIDA[1]]
-    historico = avaliar_exercicio_anterior(
-        rcl_historica['valor'], juros[COLUNA_LIQUIDADA], amortizacao[COLUNA_LIQUIDADA],
-        juros[COLUNA_RESTOS], amortizacao[COLUNA_RESTOS])
-    dados['historico'] = {chave: float(valor) for chave, valor in historico.items()
-                          if chave != 'aprovado'}
-    dados['historico']['aprovado'] = historico['aprovado']
-    dados['memoria_exata'] = {
-        'rcl_historica': str(rcl_historica['valor']),
-        'juros_liquidados': str(juros[COLUNA_LIQUIDADA]),
-        'amortizacao_liquidada': str(amortizacao[COLUNA_LIQUIDADA]),
-        'restos_juros': str(juros[COLUNA_RESTOS] or 0),
-        'restos_amortizacao': str(amortizacao[COLUNA_RESTOS] or 0),
-        'servico_historico': str(historico['servico_divida']),
-        'limite_historico': str(historico['limite']),
-        'comparacao_historica': '<',
-    }
-    if not historico['aprovado']:
-        return {**base, 'aprovado': False, 'status': 'Violada',
-                'descricao': 'Serviço da Dívida do ano anterior é superior ou igual a 11,5% da RCL do exercício.'}
-    if not rcl_atual:
-        return pendente('Exercício anterior aprovado; falta a RCL atual para projetar os exercícios futuros.')
-    fator = decimal_nao_negativo((entrada or {}).get('fator', obter_fator_projecao()),
-                                 'fator de projeção')
-    if fator == 0:
-        raise ValueError('Fator de projeção deve ser positivo')
-    dados['fator'] = str(fator)
-    if not entrada or not entrada.get('hipotese_1'):
-        return pendente('Exercício anterior aprovado. Preencha o fluxo da operação pretendida.')
-    fim = entrada.get('ano_fim_contrato')
-    if not isinstance(fim, int) or isinstance(fim, bool) or not ano <= fim <= ano + 50:
-        raise ValueError('Ano de fim do contrato inválido')
-    anos_esperados = set(range(ano, fim + 1))
-    linhas_1 = entrada['hipotese_1']
-    if not isinstance(linhas_1, list) or {r.get('ano') for r in linhas_1} != anos_esperados or len(linhas_1) != len(anos_esperados):
-        raise ValueError('A Hipótese 1 deve conter todos os anos do contrato, sem repetição')
-    primeira = projetar_anos(rcl_atual['valor'], linhas_1, ano_base=ano - 1, fator=fator)
-    futuro = avaliar_alternativas(primeira)
-    def memoria_hipotese(resultado):
-        if resultado is None:
-            return None
-        return {'aprovado': resultado['aprovado'],
-                'media_percentual': float(resultado['media_percentual'] * 100),
-                'linhas': [{chave: float(valor) if chave != 'ano' else valor
-                            for chave, valor in linha.items()} for linha in resultado['linhas']]}
-    if futuro['aprovado'] is None and ano > 2027:
-        dados['hipotese_1'] = memoria_hipotese(futuro['hipotese_1'])
-        return {**base, 'aprovado': False, 'status': 'Violada',
-                'descricao': 'Hipótese 1 reprovada; o período alternativo até 2027 não se aplica.'}
-    segunda = None
-    if futuro['aprovado'] is None and entrada.get('hipotese_2'):
-        linhas_2 = entrada['hipotese_2']
-        if not isinstance(linhas_2, list) or any(not isinstance(r.get('ano'), int) or
-                not ano <= r['ano'] <= 2027 for r in linhas_2):
-            raise ValueError('A Hipótese 2 aceita somente exercícios até 2027')
-        if any(r.get('juros_encargos') is None or r.get('amortizacao') is None for r in linhas_2):
-            dados['hipotese_1'] = memoria_hipotese(futuro['hipotese_1'])
-            return pendente('Hipótese 1 reprovada. Complete os lançamentos da Hipótese 2.')
-        segunda = projetar_anos(rcl_atual['valor'], linhas_2, ano_base=ano - 1, fator=fator)
-        futuro = avaliar_alternativas(primeira, segunda)
-    dados['hipotese_1'] = memoria_hipotese(futuro['hipotese_1'])
-    dados['hipotese_2'] = memoria_hipotese(futuro['hipotese_2'])
-    for indice, memoria in ((1, futuro['hipotese_1']), (2, futuro['hipotese_2'])):
-        if memoria:
-            dados['memoria_exata'][f'hipotese_{indice}'] = {
-                'media': str(memoria['media_percentual']),
-                'linhas': [{chave: str(valor) for chave, valor in linha.items()}
-                           for linha in memoria['linhas']],
-            }
-    if futuro['aprovado'] is None:
-        return pendente('Hipótese 1 reprovada. Preencha a Hipótese 2 até dezembro de 2027.')
-    return {**base, 'aprovado': futuro['aprovado'],
-            'status': 'Cumprida' if futuro['aprovado'] else 'Violada',
-            'descricao': ('Uma das hipóteses ficou abaixo de 11,5%; prosseguir para Dívida Consolidada.'
-                          if futuro['aprovado'] else 'As duas hipóteses atingiram ou ultrapassaram 11,5%.')}
-
+    """CAED prospectivo independente do diagnóstico histórico e de referências opcionais."""
+    motivos = []
+    if isinstance(entrada, dict) and entrada.get('erro_entrada'):
+        motivos.append({'codigo': 'ENTRADA_CAED_INVALIDA', 'mensagem': entrada['erro_entrada']})
+    referencia = fator = None
+    data_referencia = entrada.get('data_referencia') if isinstance(entrada, dict) else None
+    try:
+        if data_referencia:
+            referencia = obter_rcl_caed(ano, data_referencia)
+            fator = obter_fator_projecao(data_referencia)
+    except ValueError as exc:
+        motivos.append({'codigo': 'DADO_FISCAL_INVALIDO_OU_AMBIGUO', 'mensagem': str(exc)})
+    except Exception:
+        motivos.append({'codigo': 'ERRO_TECNICO_FISCAL', 'mensagem': 'Não foi possível consultar a referência fiscal CAED.'})
+    resultado = avaliar_caed(ano, entrada, referencia, fator, motivos)
+    dados = resultado['dados_calculados']
+    dados['historico'] = None
+    dados['historico_motivos'] = []
+    dados['ano_historico'] = ano - 1
+    try:
+        rcl = obter_rcl_ajustada_endividamento(ano - 1)
+        despesas = obter_servico_divida_exercicio_anterior(ano - 1)
+        if not rcl or not despesas or rcl['periodo'] != 6 or despesas['periodo'] != 6:
+            dados['historico_motivos'].append('Diagnóstico indisponível: faltam dados do sexto bimestre do exercício anterior.')
+        else:
+            juros = despesas['contas'][CONTAS_SERVICO_DIVIDA[0]]
+            amortizacao = despesas['contas'][CONTAS_SERVICO_DIVIDA[1]]
+            historico = avaliar_exercicio_anterior(rcl['valor'], juros[COLUNA_LIQUIDADA],
+                amortizacao[COLUNA_LIQUIDADA], juros[COLUNA_RESTOS], amortizacao[COLUNA_RESTOS])
+            dados['historico'] = {k: v if isinstance(v, bool) else float(v) for k, v in historico.items()}
+            dados['historico']['situacao'] = 'Dentro da referência de 11,5%' if historico['aprovado'] else 'Acima da referência de 11,5%'
+            dados['memoria_exata']['historico'] = memoria_decimal({'calculo': historico, 'rcl': rcl,
+                'despesas': despesas, 'restos_ausentes_assumidos_zero': juros[COLUNA_RESTOS] is None or amortizacao[COLUNA_RESTOS] is None})
+    except Exception as exc:
+        dados['historico_motivos'].append('Diagnóstico histórico indisponível: ' + type(exc).__name__)
+    dados['memoria_exata'].setdefault('historico', None)
+    dados['memoria_exata']['historico_motivos'] = list(dados['historico_motivos'])
+    return resultado
 
 def analisar_operacao(ano, valor_requisitado=0.0, servico_input=None):
     """
@@ -380,8 +310,6 @@ def analisar_operacao(ano, valor_requisitado=0.0, servico_input=None):
         regras_violadas = []
         regras_sem_informacao = []
         regras_ordenadas = []
-        servico_divida_aprovado = None
-        servico_divida_avaliado = False
 
         def adicionar_resultado(resultado, destino):
             destino.append(resultado)
@@ -399,31 +327,19 @@ def analisar_operacao(ano, valor_requisitado=0.0, servico_input=None):
                                        'Regra_do_Servico_da_Divida_115_RCL_Estimada'):
                     try:
                         resultado_servico = _resultado_servico_divida(ano, servico_input)
-                    except ValueError as exc:
-                        try:
-                            resultado_servico = _resultado_servico_divida(ano)
-                        except ValueError:
-                            resultado_servico = {
-                                'tipo': 'servico_divida',
-                                'nome': 'Projeção do Serviço da Dívida',
-                                'dados_calculados': {'ano_historico': ano - 1, 'ano_atual': ano},
-                            }
-                        resultado_servico.update(status='Sem informação', aprovado=None,
-                                                 descricao=f'Dados inválidos ou ambíguos: {exc}')
+                    except Exception:
+                        resultado_servico = avaliar_caed(ano, servico_input, None, None, [
+                            {'codigo': 'ERRO_TECNICO_CAED', 'mensagem': 'Falha técnica ao avaliar o CAED; recalcule após verificar os dados.'}])
                     resultado_servico['base_normativa'] = regra_info_yaml.get('base_normativa', '')
                     destino = (regras_sem_informacao if resultado_servico['aprovado'] is None else
                                regras_cumpridas if resultado_servico['aprovado'] else regras_violadas)
                     adicionar_resultado(resultado_servico, destino)
-                    servico_divida_aprovado = resultado_servico['aprovado']
-                    servico_divida_avaliado = True
                     log.info('Regra do Serviço da Dívida avaliada.',
                              modulo='rule_engine.py', funcao='analisar_operacao',
                              ano=ano, status=resultado_servico['status'])
                     continue
 
                 if nome_regra_yaml == 'Divida_Consolidada':
-                    if servico_divida_avaliado and servico_divida_aprovado is not True:
-                        continue
                     resultado_dcl = avaliar_dcl(ano, obter_registros_dcl(ano))
                     if resultado_dcl is not None:
                         destino = (regras_sem_informacao if resultado_dcl['aprovado'] is None else

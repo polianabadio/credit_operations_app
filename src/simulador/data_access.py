@@ -5,10 +5,13 @@ Este módulo centraliza todas as consultas ao banco de dados, retornando os dado
 em estruturas Python nativas (dicionários e listas) para serem consumidos
 pelo motor de regras.
 """
-from sqlalchemy import func, and_
 import unicodedata
-from .database_models import db, RREO, RGF
+from calendar import monthrange
+from datetime import date
 
+from sqlalchemy import and_, func
+
+from .database_models import RGF, RREO, db
 
 CONTA_RCL_ENDIVIDAMENTO = (
     'RECEITA CORRENTE LÍQUIDA AJUSTADA PARA CÁLCULO DOS LIMITES DE '
@@ -49,6 +52,39 @@ def obter_rcl_ajustada_endividamento(ano):
         'uf': linha.uf, 'anexo': linha.anexo, 'conta': linha.conta,
         'coluna': linha.coluna, 'origem': 'SICONFI/RREO',
     }
+
+
+def obter_rcl_caed(ano, data_referencia):
+    """RCL de GO até a data-base; nulo/conflito recente não recua silenciosamente."""
+    referencia = date.fromisoformat(data_referencia)
+    if referencia.year != ano:
+        raise ValueError('Data de referência deve pertencer ao exercício selecionado')
+    periodo_maximo = referencia.month // 2
+    # O bimestre do mês corrente só está fechado no seu último dia.
+    if referencia.month % 2 == 0 and referencia.day < monthrange(ano, referencia.month)[1]:
+        periodo_maximo -= 1
+    linhas = db.session.query(RREO).filter(
+        RREO.uf == 'GO', RREO.esfera == 'E', RREO.anexo == 'RREO-Anexo 03',
+        ((RREO.exercicio == ano) & (RREO.periodo <= periodo_maximo)) |
+        ((RREO.exercicio == ano - 1) & (RREO.periodo == 6))
+    ).order_by(RREO.exercicio.desc(), RREO.periodo.desc()).all()
+    encontrados = [l for l in linhas if
+                   _normalizar_rotulo(l.conta) == _normalizar_rotulo(CONTA_RCL_ENDIVIDAMENTO)
+                   and _normalizar_rotulo(l.coluna) == _normalizar_rotulo(COLUNA_RCL_12_MESES)]
+    if not encontrados:
+        return None
+    ultimo = encontrados[0]
+    candidatos = [l for l in encontrados if (l.exercicio, l.periodo) == (ultimo.exercicio, ultimo.periodo)]
+    if len(candidatos) != 1:
+        raise ValueError('RCL CAED ambígua no último período fiscal')
+    if ultimo.valor is None:
+        return None
+    mes = ultimo.periodo * 2
+    data_base = date(ultimo.exercicio, mes, monthrange(ultimo.exercicio, mes)[1])
+    return {'valor': ultimo.valor, 'exercicio': ultimo.exercicio, 'periodo': ultimo.periodo,
+            'uf': 'GO', 'esfera': 'E', 'ente': 52, 'anexo': ultimo.anexo,
+            'conta': ultimo.conta, 'coluna': ultimo.coluna, 'origem': 'SICONFI/RREO',
+            'data_base': data_base.isoformat(), 'data_referencia': referencia.isoformat()}
 
 
 def obter_servico_divida_exercicio_anterior(ano):

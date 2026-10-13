@@ -24,6 +24,7 @@ from src.simulador.rule_engine import analisar_operacao
 from src.simulador.parametros_simulacao import obter_fator_projecao, salvar_fator_projecao
 from src.simulador.painel_fiscal import obter_painel_fiscal
 from src.simulador.sadipem import obter_comprometimento_goias
+from src.simulador.margem_publica import obter_margem_publica, integrar_referencia_publica
 from src.simulador.data_updater import atualizar_operacoes_rreo, atualizar_operacoes_rgf
 from src.simulador.database_models import db, RREO
 from src.simulador.logger import log
@@ -144,8 +145,9 @@ def obter_dados_iniciais():
         return {"status": "erro", "mensagem": str(e), "anos_disponiveis": []}
 
 @eel.expose
-def obter_fator_projecao_py():
-    return obter_fator_projecao()
+def obter_fator_projecao_py(data_referencia=None):
+    """Taxa local armazenada do CAED, convertida em multiplicador."""
+    return obter_fator_projecao(data_referencia)
 
 
 @eel.expose
@@ -167,7 +169,9 @@ def obter_comprometimento_sadipem_py():
     if ano is None:
         return {'status': 'erro', 'mensagem': 'Exercício fiscal não disponível.'}
     rcl = painel.get('rcl') or {}
-    return {'status': 'sucesso', 'sadipem': obter_comprometimento_goias(ano, rcl.get('valor'))}
+    sadipem = obter_comprometimento_goias(ano, rcl.get('valor'))
+    return {'status': 'sucesso', 'sadipem': sadipem,
+            'margemPublica': obter_margem_publica(obter_projecao(painel), sadipem)}
 
 
 @eel.expose
@@ -216,8 +220,29 @@ def analisar_operacao_py(ano: int, valor_requisitado: float, servico_input=None,
     try:
         log.info("Recebido pedido de análise do frontend.", modulo="app.py", funcao="analisar_operacao_py", ano=ano, valor_requisitado=valor_requisitado)
         # Esta chamada agora invoca nosso orquestrador inteligente
-        projecao_mga = avaliar_simulacao_mga(ano, valor_requisitado, mga_input)
         resultado = analisar_operacao(ano, valor_requisitado, servico_input)
+        try:
+            if isinstance(mga_input, dict) and mga_input.get('erro_entrada'):
+                raise ValueError(mga_input['erro_entrada'])
+            projecao_mga = avaliar_simulacao_mga(ano, valor_requisitado, mga_input)
+            if (projecao_mga.get('evaluationScope') == 'registered_inventory'
+                    and any(l.get('scheduledDisbursements') is None for l in projecao_mga.get('rows', []))):
+                try:
+                    painel = obter_painel_fiscal()
+                    if painel.get('exercicio') == ano:
+                        sadipem = obter_comprometimento_goias(ano, (painel.get('rcl') or {}).get('valor'))
+                        referencia_publica = obter_margem_publica(obter_projecao(painel), sadipem)
+                        projecao_mga = integrar_referencia_publica(projecao_mga, referencia_publica)
+                except Exception as exc:
+                    log.error('Referência pública indisponível; memória da simulação preservada.',
+                              modulo='app.py', details=str(exc))
+        except Exception as exc:
+            log.error('Não foi possível avaliar as liberações; demais resultados preservados.',
+                      modulo='app.py', details=str(exc))
+            projecao_mga = {'verificationStatus': 'Dados incompletos',
+                           'globalStatus': 'Indisponível', 'dataAvailability': False,
+                           'validatedConclusion': False, 'rows': [], 'exceededYears': [],
+                           'message': 'Não foi possível avaliar as liberações. Confira os dados desta regra.'}
         resultado['mgaProjection'] = projecao_mga
         log.success("Análise via orquestrador concluída com sucesso.")
         return resultado

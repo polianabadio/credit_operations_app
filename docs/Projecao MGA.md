@@ -1,15 +1,15 @@
-﻿# Integração MGA/RCL — atualização de 06/10/2026
+# Integração MGA/RCL — atualização de 06/10/2026
 
-Simulação reúne dados gerais, Cronograma financeiro (Recebimentos e Pagamentos) e Verificações disponíveis. MGA aparece na lista como “Liberações de crédito — limite de 16% da RCL”, com tabela anual em Ver detalhes. Dashboard mostra a posição cadastrada, sem acrescentar hipóteses da nova operação. A aba Análise foi removida.
+Simulação reúne dados gerais e Verificações disponíveis. Liberações e inventário são preenchidos em Ver Detalhes do limite de 16%; pagamentos em Ver Detalhes do CAED, sem bloco de cronograma separado na página. Os recálculos atualizam o conjunto das análises. MGA aparece na lista como “Liberações de crédito — limite de 16% da RCL”, com tabela anual em Ver detalhes. Dashboard e Principais Limites mostram a margem anual disponível antes da nova operação: teto de 16% da RCL projetada menos liberações existentes incluídas. A apresentação reutiliza o saldo calculado pelo backend, exige cobertura do exercício e parâmetro validado, distingue margem zero, negativa e não determinada e preserva fontes. A memória de Limites contém RCL, teto, liberações existentes e margem; a tabela MGA com a nova operação fica na Simulação. A aba Análise foi removida.
 
-Valor requisitado é único. Ano inicial/final de liberação e ano final dos pagamentos são independentes. Modos: integral no ano indicado ou cronograma anual, com todos os anos do intervalo e soma exata em centavos. Não existe distribuição uniforme implícita. Campos vazios exibem Aguardando preenchimento e bloqueiam o cálculo.
+Valor requisitado é único. Ano inicial/final de liberação e ano final dos pagamentos são independentes. A interface exibe sempre primeiro ano e ano final; para um único exercício, preencher ambos com o mesmo ano. Cronograma anual exige primeiro um ano inicial válido, habilitando então o ano final igual ou posterior. A grade inclui somente os exercícios entre ambos, sem botão de adicionar ano. Início e fim são editáveis independentemente, a partir do exercício da análise; preserva lançamentos dos anos que continuam no período e não recria campos sem mudança do intervalo. Modos: integral no ano indicado ou cronograma anual, com todos os anos do intervalo e soma exata em centavos. Não existe distribuição uniforme implícita. Campos vazios exibem Aguardando preenchimento e bloqueiam o cálculo.
 
 ## Parâmetro auditado
 
 Fonte: MIP 2026.08.21, §§ 4.2.3–4.2.4, páginas 101–102:
 https://cdn.tesouro.gov.br/sistemas-internos/apex/producao/sistemas/thot/arquivos/publicacoes/55422_1804616/MIP-2026-08-21.pdf
 
-Desde 22/04/2026: multiplicador 1,02031208231 = taxa percentual 2,031208231% = taxa decimal 0,02031208231. Base: PIB real de 2018–2025. O código legado do serviço da dívida usava 2,031208231 como multiplicador; não foi reutilizado no MGA. O novo mga_parameters.py guarda fonte, vigência, significado e validação próprios. Fórmulas e valores persistidos das outras regras foram preservados; a origem do parâmetro legado do serviço da dívida continua pendente e está indicada na interface.
+Desde 22/04/2026: multiplicador 1,02031208231 = taxa percentual 2,031208231% = taxa decimal 0,02031208231. Base: PIB real de 2018–2025. O código legado do serviço da dívida usava 2,031208231 como multiplicador; não foi reutilizado no MGA. O novo mga_parameters.py guarda fonte, vigência, significado e validação próprios. O CAED tem resolução própria de fator documentado, sem usar o parâmetro legado persistido; sua regra atual está em [Serviço da Dívida](Regra%20do%20Serviço%20da%20Dívida%2011,5.md). Na simulação, MGA reutiliza a taxa anual local informada nos dados da operação para CAED; não há segundo campo de taxa. O parâmetro documentado próprio permanece na posição fiscal anterior à simulação.
 
 Entradas distinguem taxa decimal 0,03, percentual 3 e multiplicador 1,03. Parâmetros alternativos são hipóteses pendentes, sem conclusão validada. Referências fora de 2026 exigem fator histórico verificado. Primeiro ano: RCL base × multiplicador^(meses até dezembro / 12); seguintes: RCL anterior × multiplicador. Dezembro anterior implica 12 meses; dezembro do próprio ano já é o fechamento. YAML documenta a mesma unidade/fórmula.
 
@@ -29,6 +29,8 @@ Fontes por exercício incluem RCL base, exercício/bimestre, demonstrativo/anexo
 
 ## Relatório e resultados
 
+O detalhe da regra apresenta a composição econômica: teto anual de 16%, liberações das demais operações, nova operação e saldo após a operação. A conclusão numérica indica dentro/acima do limite ou dados insuficientes; a fonte SADIPEM/PVL é identificada separadamente e conserva a ressalva de cobertura. A tabela mostra os valores anuais em reais, sem duplicar comprometimento e uso do limite. A memória conserva a RCL, sua taxa anual percentual, referências e enquadramento a conferir.
+
 analisar_operacao_py retorna regras existentes e mgaProjection na mesma chamada. Hipóteses não são gravadas no inventário. Relatório HTML inclui entradas, cronogramas, resultados, fontes, parâmetros, pendências e memória das regras, sem recalcular. Pode ser aberto ou impresso no navegador. Mudanças de entradas/cadastros marcam resultados desatualizados e bloqueiam exportação até recálculo. Respostas de cálculos iniciados com entradas anteriores são descartadas.
 
 CAED, DCL, DTP, CAPAG, Regra de Ouro e motor de aprovação mantêm suas fórmulas. MGA é uma verificação própria e não representa aprovação global.
@@ -44,3 +46,9 @@ Pendências: cobertura atual das demais operações, fatores históricos/alterna
 149 testes Python passaram. Casos MGA: integral em ano independente, plurianual, exatamente 16%, excesso/saldo negativo, liberações desconhecidas, parcial favorável/desfavorável, soma divergente por um centavo, precisão monetária, capacidade e ano restritivo, duplicidade, taxa/multiplicador, parâmetro pendente e dezembro anterior.
 
 Playwright/Chrome: tabela em 375/1280 px, MGA na lista/modal, pagamentos únicos na Simulação, resultado desatualizado, operação vazia bloqueada e relatório contendo as mesmas entradas/resultados. Ruff dos módulos/testes MGA e checks/testes JavaScript passam. Testes não usam banco de produção.
+
+## Margem com fonte pública
+
+Ao carregar o Dashboard, a ponte Eel inicia automaticamente a consulta ao SADIPEM, enquanto os dados fiscais já são apresentados, e compõe `margemPublica` no backend, sem importar/persistir inventário. O saldo segundo o PVL do exercício usa liberações contratadas declaradas e liberações anuais não contratadas listadas. Quando liberações estiverem vazias, `indicador_liberacoes=0` em registro correspondente do cronograma de pagamentos comprova ausência declarada das contratadas; flag positivo/ausente, registro estranho ou duplicado não autorizam zero. Metadados: [Tesouro — cronograma de pagamentos](https://www.tesourotransparente.gov.br/ckan/dataset/599608bc-aaeb-42ca-ac48-2f46836f3278/resource/575c2398-9cf9-4476-9e89-e90a4ee0043c/download/metadados-pvl-oc-cp.pdf).
+
+A interface mostra valores, PVL, data, consulta e ressalva de cobertura. Lista vazia de não contratadas significa nenhuma listada nesse PVL; não comprova ausência fora dele. O resultado é referência pública parcial, separada da margem validada do inventário. A simulação reutiliza as liberações do mesmo PVL apenas em exercícios desconhecidos, soma a nova operação e recalcula com sua própria RCL projetada. Preserva a cobertura parcial, não preenche anos ausentes nem disponibiliza máximo de contratação validado. Não soma fotografias, não importa pagamentos como liberações e não reutiliza referência antiga para o exercício atual.

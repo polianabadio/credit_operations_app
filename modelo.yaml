@@ -47,14 +47,14 @@ Primeira_Etapa:
   - Regra_do_Servico_da_Divida_115_RCL_Estimada:
       validacao:
         true:
-          descricao: Média anual do serviço da dívida < 11,5% da RCL projetada
+          descricao: Média anual mais benéfica do CAED/RCL ≤ 11,5%, com cobertura e fontes completas
           proximo_passo: Prosseguir para a Dívida Consolidada
         false:
-          descricao: Média anual do serviço da dívida ≥ 11,5% da RCL projetada
+          descricao: Médias anuais aplicáveis do CAED/RCL > 11,5%
           proximo_passo: Operação de Crédito Negada
       banco_de_dados: [SICONFI]
-      base_normativa: Art 7º, Inciso II, da RSF 43/2001, Pag 82 e 83 do MIP
-      objetivo: Tem o objetivo de restringir os gastos com a rolagem da dívida, a fim de evitar um desequilíbrio fiscal. O limite de CAED/RCL é de 11,5% para média simples entre todos os anos da comparação.
+      base_normativa: RSF 43/2001, art. 7º, II e §4º; MIP 2026.08.21, seções 3.12.9, 4.1.3 e 4.2
+      objetivo: Comparar a média simples do CAED (operação pleiteada + demais operações) / RCL projetada nos anos com pagamentos da operação pretendida, usando a alternativa mais benéfica entre término e até 31/12/2027, derivadas do mesmo cronograma.
 
   - Divida_Consolidada:
       validacao:
