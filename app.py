@@ -7,7 +7,6 @@ backend (motor de regras, acesso a dados) e o frontend (JavaScript/Eel).
 
 import eel
 from src.simulador.sync_job import iniciar_atualizacao, status_atualizacao
-from src.simulador.mga_projection import obter_projecao, salvar_operacao, confirmar_cobertura, listar_memoria, avaliar_simulacao_mga
 
 
 @eel.expose
@@ -23,8 +22,7 @@ def status_atualizacao_siconfi():
 from src.simulador.rule_engine import analisar_operacao
 from src.simulador.parametros_simulacao import obter_fator_projecao, salvar_fator_projecao
 from src.simulador.painel_fiscal import obter_painel_fiscal
-from src.simulador.sadipem import obter_comprometimento_goias
-from src.simulador.margem_publica import obter_margem_publica, integrar_referencia_publica
+from src.simulador.sadipem import obter_comprometimento_goias, simular_fluxo_goias
 from src.simulador.data_updater import atualizar_operacoes_rreo, atualizar_operacoes_rgf
 from src.simulador.database_models import db, RREO
 from src.simulador.logger import log
@@ -145,17 +143,14 @@ def obter_dados_iniciais():
         return {"status": "erro", "mensagem": str(e), "anos_disponiveis": []}
 
 @eel.expose
-def obter_fator_projecao_py(data_referencia=None):
-    """Taxa local armazenada do CAED, convertida em multiplicador."""
-    return obter_fator_projecao(data_referencia)
+def obter_fator_projecao_py():
+    return obter_fator_projecao()
 
 
 @eel.expose
 def obter_painel_fiscal_py():
     try:
-        painel = obter_painel_fiscal()
-        painel['fluxo_credito'] = obter_projecao(painel)
-        return {'status': 'sucesso', 'painel': painel}
+        return {'status': 'sucesso', 'painel': obter_painel_fiscal()}
     except Exception as exc:
         log.error('Erro ao obter painel fiscal.', details=str(exc), modulo='app.py')
         return {'status': 'erro', 'mensagem': 'Não foi possível carregar o painel fiscal.'}
@@ -169,37 +164,45 @@ def obter_comprometimento_sadipem_py():
     if ano is None:
         return {'status': 'erro', 'mensagem': 'Exercício fiscal não disponível.'}
     rcl = painel.get('rcl') or {}
-    sadipem = obter_comprometimento_goias(ano, rcl.get('valor'))
-    return {'status': 'sucesso', 'sadipem': sadipem,
-            'margemPublica': obter_margem_publica(obter_projecao(painel), sadipem)}
+    return {'status': 'sucesso', 'sadipem': obter_comprometimento_goias(ano, rcl.get('valor'))}
+
+
+def _calcular_operacao_compartilhada(entrada):
+    from src.simulador.operacao import calcular_operacao
+    from src.simulador.fluxo_tlp import montar_periodos
+    from src.simulador.indices_publicos import obter_serie_ipca
+    from src.simulador.data_access import obter_rcl_ajustada_endividamento
+    from datetime import datetime
+    periodos = montar_periodos(entrada['data_liberacao'], entrada['prazo_meses'], entrada['carencia_meses'])
+    rcl = obter_rcl_ajustada_endividamento(int(entrada['ano']))
+    dados = calcular_operacao(entrada, serie_ipca=obter_serie_ipca(periodos[0]['competencia_ipca']),
+                              rcl_base=rcl['valor'] if rcl else None)
+    dados['fluxo']['fonte_ipca'] = 'IBGE / Banco Central, série 433'
+    dados['fluxo']['consultado_em'] = datetime.now().isoformat(timespec='seconds')
+    return dados
+
+
+@eel.expose
+def avaliar_operacao_completa_py(entrada):
+    try:
+        dados = _calcular_operacao_compartilhada(entrada)
+        dados['analise'] = analisar_operacao(int(entrada['ano']), float(dados['bases_fluxo'][0]['liberacaoNovaOperacao']), dados['servico_input'])
+        return {'status': 'sucesso', 'resultado': dados}
+    except Exception as exc:
+        log.error('Erro no cálculo compartilhado da operação.', details=str(exc))
+        return {'status': 'erro', 'mensagem': str(exc)}
 
 
 @eel.expose
 def simular_fluxo_credito_py(linhas):
     try:
-        return {'status': 'sucesso', 'projection': obter_projecao(obter_painel_fiscal(), linhas)}
-    except (ValueError, KeyError, TypeError) as exc:
-        return {'status': 'erro', 'mensagem': str(exc)}
+        if isinstance(linhas, dict):
+            dados = _calcular_operacao_compartilhada(linhas['operacao'])
+            complementos = {int(item['ano']): item for item in linhas.get('complementos', [])}
+            linhas = [{**item, 'liberacoesNaoContratadasManual': complementos.get(item['ano'], {}).get('liberacoesNaoContratadasManual')}
+                      for item in dados['bases_fluxo']]
 
-
-@eel.expose
-def listar_operacoes_mga_py():
-    return listar_memoria()
-
-
-@eel.expose
-def salvar_operacao_mga_py(entrada):
-    try:
-        return {'status': 'sucesso', 'id': salvar_operacao(entrada)}
-    except (ValueError, KeyError, TypeError) as exc:
-        return {'status': 'erro', 'mensagem': str(exc)}
-
-
-@eel.expose
-def confirmar_cobertura_mga_py(inicio, fim, fonte):
-    try:
-        confirmar_cobertura(inicio, fim, fonte)
-        return {'status': 'sucesso'}
+        return {'status': 'sucesso', 'exercicios': simular_fluxo_goias(linhas)}
     except (ValueError, KeyError, TypeError) as exc:
         return {'status': 'erro', 'mensagem': str(exc)}
 
@@ -213,7 +216,53 @@ def salvar_fator_projecao_py(valor):
 
 
 @eel.expose
-def analisar_operacao_py(ano: int, valor_requisitado: float, servico_input=None, mga_input=None):
+def consultar_ipca_py(mes):
+    from src.simulador.indices_publicos import consultar_ipca
+    try:
+        return {'status': 'sucesso', 'resultado': consultar_ipca(mes)}
+    except ValueError as exc:
+        return {'status': 'erro', 'mensagem': str(exc)}
+    except Exception:
+        return {'status': 'erro', 'mensagem': 'Não foi possível consultar o Banco Central agora. Tente novamente ou informe o índice e confira sua fonte.'}
+
+
+@eel.expose
+def calcular_fluxo_tlp_py(entrada):
+    from src.simulador.fluxo_tlp import montar_periodos, calcular_fluxo_tlp
+    from src.simulador.indices_publicos import obter_serie_ipca
+    from datetime import datetime
+    try:
+        periodos = montar_periodos(entrada['data_liberacao'], entrada['prazo_meses'], entrada['carencia_meses'])
+        if int(entrada['ano']) != int(entrada['data_liberacao'][:4]):
+            raise ValueError('A data de recebimento deve pertencer ao ano informado nos dados do empréstimo.')
+        if periodos[-1]['fim'].year != int(entrada['ano_final']):
+            raise ValueError(f"O prazo termina em {periodos[-1]['fim'].year}. Confira o prazo ou o ano final nos dados do empréstimo.")
+        serie = obter_serie_ipca(periodos[0]['competencia_ipca'])
+        resultado = calcular_fluxo_tlp(entrada['valor'], entrada['data_liberacao'],
+                                      entrada['prazo_meses'], entrada['carencia_meses'],
+                                      entrada['prefixada'], entrada['spread'], serie,
+                                      ipca_ausente_zero=True)
+        resultado['fonte_ipca'] = 'IBGE / Banco Central, série 433'
+        resultado['consultado_em'] = datetime.now().isoformat(timespec='seconds')
+        return {'status': 'sucesso', 'resultado': resultado}
+    except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+        return {'status': 'erro', 'mensagem': str(exc)}
+    except Exception:
+        return {'status': 'erro', 'mensagem': 'Não foi possível obter a inflação publicada. Tente novamente. O cálculo não utilizou índices iguais a zero para preencher dados ausentes.'}
+
+
+@eel.expose
+def avaliar_encargos_tlp_py(entrada):
+    """Avaliação adicional, independente do motor das regras fiscais existentes."""
+    from src.simulador.encargos import calcular_encargos
+    try:
+        return {'status': 'sucesso', 'resultado': calcular_encargos(**entrada)}
+    except (ValueError, TypeError, ArithmeticError) as exc:
+        return {'status': 'erro', 'mensagem': str(exc)}
+
+
+@eel.expose
+def analisar_operacao_py(ano: int, valor_requisitado: float, servico_input=None):
     """
     Ponto de entrada principal para executar o motor de regras e retornar a análise completa.
     """
@@ -221,33 +270,8 @@ def analisar_operacao_py(ano: int, valor_requisitado: float, servico_input=None,
         log.info("Recebido pedido de análise do frontend.", modulo="app.py", funcao="analisar_operacao_py", ano=ano, valor_requisitado=valor_requisitado)
         # Esta chamada agora invoca nosso orquestrador inteligente
         resultado = analisar_operacao(ano, valor_requisitado, servico_input)
-        try:
-            if isinstance(mga_input, dict) and mga_input.get('erro_entrada'):
-                raise ValueError(mga_input['erro_entrada'])
-            projecao_mga = avaliar_simulacao_mga(ano, valor_requisitado, mga_input)
-            if (projecao_mga.get('evaluationScope') == 'registered_inventory'
-                    and any(l.get('scheduledDisbursements') is None for l in projecao_mga.get('rows', []))):
-                try:
-                    painel = obter_painel_fiscal()
-                    if painel.get('exercicio') == ano:
-                        sadipem = obter_comprometimento_goias(ano, (painel.get('rcl') or {}).get('valor'))
-                        referencia_publica = obter_margem_publica(obter_projecao(painel), sadipem)
-                        projecao_mga = integrar_referencia_publica(projecao_mga, referencia_publica)
-                except Exception as exc:
-                    log.error('Referência pública indisponível; memória da simulação preservada.',
-                              modulo='app.py', details=str(exc))
-        except Exception as exc:
-            log.error('Não foi possível avaliar as liberações; demais resultados preservados.',
-                      modulo='app.py', details=str(exc))
-            projecao_mga = {'verificationStatus': 'Dados incompletos',
-                           'globalStatus': 'Indisponível', 'dataAvailability': False,
-                           'validatedConclusion': False, 'rows': [], 'exceededYears': [],
-                           'message': 'Não foi possível avaliar as liberações. Confira os dados desta regra.'}
-        resultado['mgaProjection'] = projecao_mga
         log.success("Análise via orquestrador concluída com sucesso.")
         return resultado
-    except (ValueError, KeyError, TypeError) as exc:
-        return {'status': 'erro', 'mensagem': str(exc)}
     except Exception as e:
         log.error("Erro ao executar 'analisar_operacao'", details=str(e), modulo="app.py", funcao="analisar_operacao_py", traceback=True)
         return {"status": "erro", "mensagem": f"Ocorreu um erro crítico no backend: {e}"}

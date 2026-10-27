@@ -51,7 +51,7 @@ Para configurar e rodar o projeto localmente, siga os passos abaixo:
 Para iniciar o aplicativo, execute o arquivo `app.py`:
 
 ```bash
-python app.py
+.\.venv\Scripts\python.exe app.py
 ```
 
 Isso iniciará a aplicação Eel e abrirá a interface do aplicativo em uma janela desktop.

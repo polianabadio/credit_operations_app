@@ -77,7 +77,7 @@ body > nav { border-bottom: 1px solid #dce7df; box-shadow: 0 2px 12px #17362b05;
 #navbar-default .jornada-menu button { min-height: 38px; padding: 8px 12px; border: 0; color: #345d42; background: transparent; font-size: 13px; }
 #navbar-default .jornada-menu #nav-painel, #navbar-default .jornada-menu #nav-simulacao { background: transparent; border: 0; color: #345d42; }
 #navbar-default #nav-painel.ativo, #navbar-default #nav-limites.ativo,
-#navbar-default #nav-simulacao.ativo { background: #fff; color: var(--brand-dark); box-shadow: 0 2px 8px #17362b13; }
+#navbar-default #nav-simulacao.ativo, #navbar-default #nav-analise.ativo { background: #fff; color: var(--brand-dark); box-shadow: 0 2px 8px #17362b13; }
 #navbar-default .jornada-menu button:disabled { opacity: .48; cursor: not-allowed; }
 #navbar-default button.ativo:not(.jornada-menu button) { outline: 2px solid #a8d4b8; }
 #nav-configuracoes svg { width: 23px; height: 23px; }
@@ -198,9 +198,7 @@ body > nav { border-bottom: 1px solid #dce7df; box-shadow: 0 2px 12px #17362b05;
 .qualidade-badge.excedido { color: #a51f27; background: #fde6e7; }
 .limites-secao-titulo { margin: 0 0 9px; color: var(--ink); font-size: 17px; font-weight: 750; }
 .limites-secao-titulo { margin: 0 0 -7px; }
-.limites-detalhes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; }
-.limites-detalhes > * { min-width: 0; }
-.margem-credito .mga-tabela { min-width: 680px; }
+.limites-detalhes { display: grid; gap: 9px; }
 .limite-detalhe-fixo { padding: 0; }
 .limite-detalhe-cabecalho { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 15px 18px; border-bottom: 1px solid #e5eee8; }
 .limite-detalhe-cabecalho h3 { margin: 0 5px 0 0; color: var(--ink); font-size: 15px; font-weight: 700; }
@@ -217,6 +215,10 @@ body > nav { border-bottom: 1px solid #dce7df; box-shadow: 0 2px 12px #17362b05;
 .limite-detalhe-conteudo .limite-valores { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin: 0 0 12px; }
 .limite-detalhe-conteudo .painel-card-ref { display: block; padding-top: 7px; }
 .limite-aviso-historico { margin: 10px 0; padding: 8px 10px; border-left: 3px solid #819b8a; background: #f0f4f1; color: #3d5745; font-size: 12px; }
+.limites-fator > strong { display: block; margin-bottom: 7px; color: #76550d; }
+.limites-fator .painel-help { margin-bottom: 8px; }
+.limites-fator ul { display: flex; flex-wrap: wrap; gap: 6px 25px; margin: 0 0 8px; padding-left: 18px; color: #4b6255; font-size: 12px; }
+.limites-fator > p:last-child { margin: 0; color: var(--ink); font-size: 13px; font-weight: 650; }
 .limite-detalhe h2 { margin-bottom: 4px; }
 .limite-valores { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 15px 0; }
 .limite-valores > div { display: grid; gap: 4px; padding: 12px; border-radius: 8px; background: #f4f8f5; }
@@ -412,6 +414,7 @@ button[aria-busy="true"] { cursor: progress; opacity: .88; }
 .servico-projecao-controles .servico-exercicio-detalhes,
 .servico-projecao-controles #servico-parametros { margin: 0; padding: 13px 0 0; border: 0; border-top: 1px solid #e0e7e3; border-radius: 0; background: transparent; }
 .servico-projecao-controles .servico-exercicio-detalhes summary,
+.servico-parcelas-detalhes summary,
 .servico-projecao-controles #servico-parametros summary { color: #172033; font-size: 13px; font-weight: 700; }
 .servico-projecao-controles .servico-value-row { flex-wrap: wrap; }
 .servico-projecao-controles .servico-value-row dd { overflow-wrap: anywhere; }
@@ -499,49 +502,45 @@ button[aria-busy="true"] { cursor: progress; opacity: .88; }
 .fluxo-sim-linha { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding:14px 0; border-bottom:1px solid #dce5df; }
 .fluxo-sim-linha label { display:grid; gap:5px; font-size:13px; color:#263d34; }
 .fluxo-sim-linha input { width:100%; border:1px solid #cbd9d0; border-radius:7px; padding:9px; background:#fff; }
+#form-fluxo-credito { display:grid; gap:14px; }
 #fluxo-credito-resultado { margin-top:16px; }
-.resultados-desatualizados { opacity: .65; }
-#simulacao-atualidade { color: #775019; margin: 12px 0; }
-.mga-status { display: inline-block; padding: 4px 8px; background: #eef3f1; border-radius: 6px; color: #164237; white-space: normal; }
-#cronograma-pagamentos { margin-top: 18px; }
 .fluxo-sim-resultado { padding:12px 0; border-top:1px solid #dce5df; }
 @media (max-width:800px) { .fluxo-sim-linha { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 .fluxo-dados-pvl { margin:12px 0; padding:12px 14px; border:1px solid #dce5df; border-radius:8px; background:#fff; }
 .fluxo-dados-pvl p { margin:6px 0 0; }
 .fluxo-historico { background:#f6f8f6; }
-/* Projeção anual MGA e cadastro da memória. */
-.mga-tabela-rolagem { overflow-x: auto; width: 100%; margin: 1rem 0; }
-.mga-tabela { border-collapse: collapse; min-width: 960px; width: 100%; }
-.mga-tabela th, .mga-tabela td { padding: .7rem; border-bottom: 1px solid #d1d5db; text-align: left; }
-.mga-tabela th { background: #f3f4f6; }
-.mga-ano-critico { font-weight: 600; }
-.mga-status.mga-atendido, .mga-tabela tr.mga-atendido { background: #f0fdf4; color: #166534; }
-.mga-status.mga-excedido, .mga-tabela tr.mga-excedido { background: #fef2f2; color: #991b1b; }
-.mga-status.mga-pendente, .mga-tabela tr.mga-pendente { background: #f8fafc; color: #475569; }
-.mga-projecao.mga-excedido { border-left-color: #dc2626; }
-.mga-projecao.mga-pendente { border-left-color: #94a3b8; }
-.mga-cadastro { display: grid; gap: .8rem; margin: 1rem 0; }
-.mga-cadastro label { display: grid; gap: .3rem; }
-.mga-entradas-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.mga-entradas-grid > p, .mga-entradas-grid > details, .mga-entradas-grid > div, .mga-entradas-grid > button { grid-column: 1 / -1; }
-.mga-entradas-grid [hidden] { display: none; }
-@media (max-width: 640px) { .mga-entradas-grid { grid-template-columns: 1fr; } }
-.mga-cadastro input, .mga-cadastro select, .mga-cadastro textarea { max-width: 100%; padding: .5rem; border: 1px solid #9ca3af; border-radius: .3rem; }
-.mga-projecao { min-width: 0; max-width: 100%; }
-.simulacao-pagina > .simulacao-formulario, #fluxo-credito-resultado { min-width: 0; }
-/* Cronograma de pagamentos CAED: uma grade com cobertura explícita. */
-.caed-input-row, .caed-grid-head { display: grid; grid-template-columns: 70px repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; }
-.caed-table-scroll { max-width: 100%; overflow-x: auto; }
-.caed-table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: 13px; }
-.caed-table th, .caed-table td { padding: 10px; border-bottom: 1px solid #dbe6df; text-align: right; }
-.caed-table th:first-child, .caed-table td:first-child { text-align: left; }
-@media (max-width: 640px) { .caed-input-row { grid-template-columns: 1fr; } .caed-grid-head { display: none; } }
-.caed-input-label { min-width: 0; }
-.mga-resumo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
-.mga-resumo > div { padding: 12px; border: 1px solid #d6e6dd; border-radius: 8px; background: #f6faf8; }
-.mga-resumo span, .mga-resumo strong { display: block; }
-.mga-resumo strong { margin-top: 6px; color: var(--ink); overflow-wrap: anywhere; }
-.mga-ressalva { padding: 10px 12px; border-left: 3px solid #94a3b8; background: #f8fafc; color: #475569; }
-@media (max-width: 640px) { .mga-resumo { grid-template-columns: 1fr; } }
-.caed-input-label > span { display: none; }
-@media (max-width: 640px) { .caed-input-label > span { display: block; font-size: .85rem; margin-bottom: .25rem; } }
+
+/* Avaliação adicional; estilos restritos ao componente TLP. */
+#avaliacao-tlp .tlp-titulo { cursor:pointer; font-size:18px; font-weight:700; }
+#avaliacao-tlp[open] .tlp-titulo { margin-bottom:16px; }
+#form-avaliacao-tlp { display:grid; gap:14px; }
+#tlp-resultado { margin-top:16px; overflow-wrap:anywhere; }
+#tlp-resultado p { margin:8px 0; }
+/* Mesma operação, modais de dados específicos. */
+.operacao-modal.hidden { display:none; }
+.operacao-modal { position:fixed; inset:0; z-index:60; background:#172c2580; overflow:auto; padding:30px 16px; }
+.operacao-modal-painel { max-width:1060px; margin:0 auto; background:white; border-radius:12px; padding:24px; box-shadow:0 18px 60px #0003; }
+.operacao-modal-painel>header { display:flex; justify-content:space-between; align-items:center; gap:20px; border-bottom:1px solid #dce5df; padding-bottom:14px; }
+.operacao-modal-painel>header h2 { font-size:21px; font-weight:700; }
+.operacao-modal-painel>header button { padding:8px 12px; border:1px solid #cbd8d0; border-radius:7px; }
+.operacao-contexto { margin:14px 0; padding:12px; border-radius:7px; background:#eff6f0; font-size:13px; color:#365442; }
+.operacao-liberacao-contexto { grid-column:1/-1; font-size:13px; color:#4c6654; }
+.operacao-cronograma { margin:16px 0; }
+.operacao-cronograma summary { cursor:pointer; font-weight:600; }
+#operacao-liberacoes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:12px; }
+.operacao-modal input,.operacao-modal select { width:100%; border:1px solid #cbd8d0; border-radius:7px; padding:9px; }
+.operacao-modal .simulacao-campos { margin:16px 0; }
+@media(max-width:600px) { .operacao-modal { padding:12px 8px; } .operacao-modal-painel { padding:16px; } #operacao-liberacoes { grid-template-columns:1fr; } }
+#secao-simulacao { min-width:0; grid-template-columns:minmax(0,1fr); }
+#secao-analise,#tabela-resultados-container { min-width:0; max-width:100%; }
+#tabela-resultados-container>.overflow-x-auto { max-width:100%; overflow-x:auto; }
+@media(max-width:600px) { #secao-simulacao .simulacao-campos,.operacao-modal .simulacao-campos { grid-template-columns:1fr; } }
+.operacao-modal .fluxo-sim-linha { grid-template-columns:minmax(110px,.7fr) repeat(2,minmax(0,1fr)); }
+@media(max-width:600px) { .operacao-modal .fluxo-sim-linha { grid-template-columns:1fr; } }
+
+.tlp-tabela-rolagem {overflow-x:auto; max-width:100%; margin:1rem 0;}
+.tlp-tabela {width:100%;border-collapse:collapse;font-size:.9rem;}
+.tlp-tabela th,.tlp-tabela td {padding:.6rem;text-align:right;border-bottom:1px solid #d8e6df;white-space:nowrap;}
+.tlp-tabela th:first-child,.tlp-tabela td:first-child {text-align:left;}
+.simulacao-formulario .tlp-hipotese {display:flex;align-items:flex-start;gap:.6rem;}
+.simulacao-formulario .tlp-hipotese input {width:auto;flex:0 0 auto;margin-top:.3rem;}
