@@ -1,5 +1,6 @@
 from src.simulador.caed_publico import obter_pagamentos_caed, integrar_pagamentos_caed
 from src.simulador.caed_publico import registrar_confirmacao, obter_confirmacao
+from src.simulador.caed_publico import obter_pagamentos_dashboard
 from src.simulador.servico_divida import avaliar_caed
 from tests.test_sadipem import PVL_ATUAL
 from tests.test_servico_divida import entrada, referencia, fator
@@ -30,6 +31,20 @@ def test_utiliza_somente_demais_operacoes_do_mesmo_pvl():
     assert resultado['pagamentos'] == {2026: '20', 2027: '0'}
     assert resultado['snapshot']['idPleito'] == 74460
     assert resultado['cobertura_confirmada'] is False
+
+
+def test_dashboard_reutiliza_snapshot_sem_prazo_da_nova_operacao():
+    cliente = Cliente([registro(), registro(2050, '0'), registro('Restante a pagar', '300')])
+    snapshot = {'idPleito': 74460, 'numeroPvl': 'PVL teste',
+                'data': '2026-07-30', 'dataProtocolo': '2026-07-30'}
+    dados = obter_pagamentos_dashboard(2026, {'snapshot': snapshot}, client=cliente,
+                                       data_referencia='2026-10-29')
+    assert dados['status'] == 'Disponível'
+    assert dados['pagamentos'] == {2026: '20', 2050: '0'}
+    assert dados['saldos_sem_ano'][0]['demais_operacoes'] == '300'
+    assert dados['cobertura_confirmada'] is False
+    assert cliente.chamadas == [('res-cronograma-pagamentos', {'id_pleito': 74460})]
+    assert obter_pagamentos_dashboard(2026, {}, client=cliente)['pagamentos'] == {}
 
 
 def test_ausente_duplicado_e_invalido_nao_viram_zero():

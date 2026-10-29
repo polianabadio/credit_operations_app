@@ -54,7 +54,7 @@ def obter_confirmacao(referencia, ano, fim, caminho=None):
     return None
 
 
-def obter_pagamentos_caed(ano, fim, data_referencia, client=None):
+def obter_pagamentos_caed(ano, fim, data_referencia, client=None, snapshot=None):
     """Não usa a operação do PVL como se fosse a nova operação simulada."""
     cliente = client or _client
     referencia = datetime.fromisoformat(data_referencia)
@@ -62,7 +62,8 @@ def obter_pagamentos_caed(ano, fim, data_referencia, client=None):
                  'consultado_em': datetime.now().isoformat(timespec='seconds'),
                  'pagamentos': {}, 'saldos_sem_ano': [], 'cobertura_confirmada': False, 'motivos': []}
     try:
-        pvls = SadipemSnapshotSelector().ordenar(SadipemPvlService(cliente).goias())
+        pvls = ([snapshot] if snapshot is not None else
+                SadipemSnapshotSelector().ordenar(SadipemPvlService(cliente).goias()))
         if not pvls:
             resultado['motivos'].append('Não há PVL disponível para consultar os pagamentos.')
             return resultado
@@ -85,7 +86,7 @@ def obter_pagamentos_caed(ano, fim, data_referencia, client=None):
                     'demais_operacoes': str(valor_monetario(registro.get('demais_operacoes'), 'saldo restante'))})
                 continue
             exercicio = int(registro['ano'])
-            if ano <= exercicio <= fim:
+            if exercicio >= ano and (fim is None or exercicio <= fim):
                 por_ano.setdefault(exercicio, []).append(registro)
         for exercicio, linhas in por_ano.items():
             if len(linhas) != 1:
@@ -101,6 +102,20 @@ def obter_pagamentos_caed(ano, fim, data_referencia, client=None):
         resultado['pagamentos'] = {}
         resultado['motivos'].append('Não foi possível consultar os pagamentos no SADIPEM agora.')
     return resultado
+
+
+def obter_pagamentos_dashboard(ano, sadipem, client=None, data_referencia=None):
+    """Somente demais operações do mesmo snapshot do Dashboard; não simula."""
+    snapshot = sadipem.get('snapshot') or {}
+    if not snapshot.get('idPleito') or sadipem.get('motivo') in ('API_ERROR', 'CANCELLED', 'AMBIGUOUS_DATA'):
+        return {'status': 'Indisponível', 'pagamentos': {}, 'snapshot': None,
+                'motivos': ['Sem PVL atual elegível para consultar os pagamentos.'], 'saldos_sem_ano': []}
+    pvl = {**snapshot, 'dataStatus': snapshot.get('dataStatus') or snapshot.get('data')}
+    referencia = data_referencia or datetime.now().date().isoformat()
+    dados = obter_pagamentos_caed(ano, None, referencia, client=client, snapshot=pvl)
+    dados['status'] = 'Disponível' if dados['pagamentos'] else 'Indisponível'
+    dados['ano_inicial'] = ano
+    return dados
 
 
 def integrar_pagamentos_caed(entrada, referencia):

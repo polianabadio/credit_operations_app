@@ -26,13 +26,15 @@ async function testar() {
     assert.equal(exibidos.length,1,'Dados fiscais aparecem antes da resposta SADIPEM');
     const andamento = ctx.carregarSadipemLimites();
     assert.equal(consulta,1,'Navegação não duplica consulta em andamento');
-    pendentes.shift()({status:'sucesso',sadipem:{snapshot:{idPleito:1}},margemPublica:{status:'Referência pública'}});
+    pendentes.shift()({status:'sucesso',sadipem:{snapshot:{idPleito:1}},margemPublica:{status:'Referência pública'},pagamentosDivida:{status:'Disponível',pagamentos:{2026:'20'}}});
     await andamento;
+    assert.equal(painel.pagamentosDivida.pagamentos[2026],'20');
     await ctx.carregarSadipemLimites();
     assert.equal(consulta,1,'Navegação reutiliza os dados já carregados');
     painel={exercicio:2026};
     await ctx.carregarPainelFiscal();
     assert.equal(consulta,1,'Atualização da mesma base não apaga nem reconsulta a margem');
+    assert.equal(exibidos.at(-1).pagamentosDivida.pagamentos[2026],'20');
     assert.equal(exibidos.at(-1).margemPublica.status,'Referência pública',
         'Margem permanece disponível desde a primeira renderização da atualização');
     painel={exercicio:2026,rcl:{valor:200,periodo:4}};

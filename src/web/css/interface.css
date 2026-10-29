@@ -275,3 +275,21 @@ body > footer > div { font-size: 10px; color: #829087; }
 .divida-historico-ponto-dcl:focus-visible { stroke: #143d2f; stroke-width: 3; outline: none; }
 .divida-historico-rotulo-dcl { fill: #2862a0; font-size: 11px; font-weight: 700; pointer-events: none; }
 .divida-historico-limite { stroke: #8d9c93; stroke-width: 1; stroke-dasharray: 5 5; }
+
+.pagamentos-divida { grid-column: 1 / -1; min-width: 0; padding: 24px; background: #fff; border: 1px solid var(--line); border-radius: 14px; }
+.pagamentos-divida-cabecalho { display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 12px 24px; margin-bottom: 18px; }
+.pagamentos-divida h2 { margin: 0 0 8px; font-size: 18px; font-weight: 650; color: #143d2f; }
+.pagamentos-divida-pico { display: grid; gap: 5px; padding: 10px 14px; border-radius: 8px; background: #f1f6f3; }
+.pagamentos-divida-pico span { color: #627568; font-size: 11px; }
+.pagamentos-divida-pico strong { color: #143d2f; font-size: 16px; }
+.pagamentos-divida-rolagem { max-width: 100%; overflow-x: auto; }
+.pagamentos-divida-svg { width: 100%; min-width: 840px; display: block; }
+.pagamentos-divida-grade { stroke: #e6ede8; stroke-width: 1; }
+.pagamentos-divida-eixo { fill: #617469; font-size: 11px; }
+.pagamentos-divida-barra { fill: #28724c; }
+.pagamentos-divida-foco { fill: transparent; }
+.pagamentos-divida-ano { cursor: pointer; outline: none; }
+.pagamentos-divida-ano[aria-pressed="true"] .pagamentos-divida-foco, .pagamentos-divida-ano:hover .pagamentos-divida-foco { fill: #eaf2ed; }
+.pagamentos-divida-ano:focus-visible .pagamentos-divida-foco { stroke: #28724c; stroke-width: 1; }
+.pagamentos-divida-selecionado { padding: 12px 16px; background: #f1f6f3; border-radius: 8px; color: #143d2f; font-size: 15px; font-weight: 650; }
+.pagamentos-divida-nota { color: #627467; font-size: 11px; line-height: 1.6; margin: 10px 0 0; }

@@ -329,3 +329,4 @@
 2026-10-29 14:05:27,882 - SimuladorLogger - WARNING - Publicação histórica CAPAG 2025 não atualizada. indisponivel []
 2026-10-29 14:05:27,882 - SimuladorLogger - WARNING - Publicação histórica CAPAG 2024 não atualizada. indisponivel []
 2026-10-29 14:05:27,882 - SimuladorLogger - WARNING - Publicação histórica CAPAG 2025 não atualizada. indisponivel []
+2026-10-29 16:22:48,970 - SimuladorLogger - ERROR - Falha na consulta de pagamentos CAED. A consulta retornou pagamentos de outro PVL. []

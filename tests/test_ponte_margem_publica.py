@@ -21,6 +21,7 @@ class PonteMargemPublicaTest(unittest.TestCase):
             'obter_projecao': Mock(return_value=projecao),
             'obter_comprometimento_goias': Mock(return_value=sadipem),
             'obter_margem_publica': Mock(return_value=margem),
+            'obter_pagamentos_dashboard': Mock(return_value={'status': 'Disponível', 'pagamentos': {2026: '10'}}),
         }
         exec(compile(ast.Module(body=funcoes, type_ignores=[]), 'ponte', 'exec'), contexto)
         resposta = contexto['obter_painel_fiscal_py']()
@@ -28,6 +29,8 @@ class PonteMargemPublicaTest(unittest.TestCase):
         resposta = contexto['obter_comprometimento_sadipem_py']()
         self.assertIs(resposta['margemPublica'], margem)
         self.assertIs(resposta['sadipem'], sadipem)
+        self.assertEqual(resposta['pagamentosDivida']['pagamentos'], {2026: '10'})
+        contexto['obter_pagamentos_dashboard'].assert_called_once_with(2026, sadipem)
         contexto['obter_margem_publica'].assert_called_once_with(projecao, sadipem)
         contexto['obter_comprometimento_goias'].assert_called_once_with(2026, 1000)
 

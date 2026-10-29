@@ -211,6 +211,7 @@ async function carregarSadipemLimites() {
     if (painelFiscalAtual.margemPublica && painelFiscalAtual.margemPublica.status !== 'Consultando') return;
     const painelConsultado = painelFiscalAtual;
     painelConsultado.margemPublica = {status: 'Consultando', rows: []};
+    painelConsultado.pagamentosDivida = {status: 'Consultando', pagamentos: {}};
     renderizarVisaoFiscal(painelConsultado);
     consultaSadipemEmCurso = (async () => {
         try {
@@ -219,12 +220,14 @@ async function carregarSadipemLimites() {
             if (resposta.status !== 'sucesso') throw new Error(resposta.mensagem);
             painelFiscalAtual.sadipem = resposta.sadipem;
             painelFiscalAtual.margemPublica = resposta.margemPublica ?? {status: 'Indisponível', rows: [], motivos: ['A consulta não retornou a memória da margem pública.']};
+            painelFiscalAtual.pagamentosDivida = resposta.pagamentosDivida ?? {status: 'Indisponível', pagamentos: {}, motivos: ['A consulta não retornou pagamentos anuais.']};
             renderizarVisaoFiscal(painelFiscalAtual);
         } catch (error) {
             if (painelFiscalAtual !== painelConsultado) return;
             console.error('Erro ao consultar SADIPEM:', error);
             painelFiscalAtual.sadipem = {statusDadosMga: 'Unavailable', motivo: 'API_ERROR'};
             painelFiscalAtual.margemPublica = {status: 'Indisponível', rows: [], motivos: ['Não foi possível consultar a margem no SADIPEM.']};
+            painelFiscalAtual.pagamentosDivida = {status: 'Indisponível', pagamentos: {}, motivos: ['Não foi possível consultar os pagamentos no SADIPEM.']};
             renderizarVisaoFiscal(painelFiscalAtual);
         } finally {
             consultaSadipemEmCurso = null;
@@ -246,6 +249,7 @@ async function carregarPainelFiscal() {
             } else {
                 novo.sadipem = painelFiscalAtual.sadipem;
                 novo.margemPublica = painelFiscalAtual.margemPublica;
+                novo.pagamentosDivida = painelFiscalAtual.pagamentosDivida;
                 painelFiscalAtual = novo;
             }
         } else painelFiscalAtual = novo;

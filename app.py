@@ -23,6 +23,7 @@ from src.simulador.rule_engine import analisar_operacao
 from src.simulador.parametros_simulacao import obter_fator_projecao, salvar_fator_projecao, obter_taxa_salva
 from src.simulador.painel_fiscal import obter_painel_fiscal
 from src.simulador.margem_publica import obter_margem_publica
+from src.simulador.caed_publico import obter_pagamentos_dashboard
 from src.simulador.mga_projection import obter_projecao
 from src.simulador.sadipem import obter_comprometimento_goias, simular_fluxo_goias
 from src.simulador.data_updater import atualizar_operacoes_rreo, atualizar_operacoes_rgf
@@ -173,7 +174,9 @@ def obter_comprometimento_sadipem_py():
     rcl = painel.get('rcl') or {}
     sadipem = obter_comprometimento_goias(ano, rcl.get('valor'))
     margem = obter_margem_publica(painel.get('fluxo_credito') or {}, sadipem)
-    return {'status': 'sucesso', 'sadipem': sadipem, 'margemPublica': margem}
+    pagamentos = obter_pagamentos_dashboard(ano, sadipem)
+    return {'status': 'sucesso', 'sadipem': sadipem, 'margemPublica': margem,
+            'pagamentosDivida': pagamentos}
 
 
 def _calcular_operacao_compartilhada(entrada):

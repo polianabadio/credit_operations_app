@@ -438,6 +438,82 @@ function criarHistoricoDividaRcl(historico) {
     return card;
 }
 
+function criarPagamentosDivida(referencia) {
+    const card=elementoFiscal('section','pagamentos-divida');
+    const cabecalho=elementoFiscal('div','pagamentos-divida-cabecalho');
+    const titulo=elementoFiscal('div');
+    titulo.append(elementoFiscal('h2','','Pagamentos anuais da dívida'),
+        elementoFiscal('p','painel-help','Cronograma das demais operações informado no PVL atual'));
+    cabecalho.appendChild(titulo); card.appendChild(cabecalho);
+    const conhecidos=Object.entries(referencia?.pagamentos??{}).filter(([ano,v])=>Number.isInteger(Number(ano)) && v!==null && v!=='' && Number.isFinite(Number(v))).map(([ano,v])=>({ano:Number(ano),valor:Number(v)})).sort((a,b)=>a.ano-b.ano);
+    if (!conhecidos.length) {
+        card.appendChild(elementoFiscal('p','painel-help',referencia?.status==='Consultando'
+            ? 'Consultando os pagamentos no SADIPEM…' : 'Pagamentos anuais não disponíveis para o PVL atual.'));
+        for (const motivo of referencia?.motivos??[]) card.appendChild(elementoFiscal('p','pagamentos-divida-nota',motivo));
+        return card;
+    }
+    const pico=conhecidos.reduce((a,b)=>b.valor>a.valor?b:a);
+    const destaque=elementoFiscal('div','pagamentos-divida-pico');
+    destaque.append(elementoFiscal('span','','Maior pagamento informado'),elementoFiscal('strong','',`${pico.ano} · ${formatarMoeda(pico.valor)}`));
+    cabecalho.appendChild(destaque);
+    const inicio=Math.min(Number(referencia.ano_inicial)||conhecidos[0].ano,conhecidos[0].ano), fim=conhecidos.at(-1).ano;
+    const valores=new Map(conhecidos.map(i=>[i.ano,i.valor]));
+    const anos=Array.from({length:fim-inicio+1},(_,i)=>inicio+i);
+    const largura=Math.max(840,anos.length*46+110), esquerda=65, direita=largura-25;
+    const unidade=pico.valor>=1e9?1e9:pico.valor>=1e6?1e6:1;
+    const alto=Math.max(1,Math.ceil(pico.valor/unidade*2)/2)*unidade;
+    const y=v=>260-v/alto*200;
+    const curto=new Intl.NumberFormat('pt-BR',{maximumFractionDigits:2});
+    const criar=(tag,attrs,texto)=>{
+        const no=document.createElementNS('http://www.w3.org/2000/svg',tag);
+        for (const [k,v] of Object.entries(attrs)) no.setAttribute(k,String(v));
+        if(texto!==undefined) no.textContent=texto;
+        return no;
+    };
+    const svg=criar('svg',{viewBox:`0 0 ${largura} 310`,class:'pagamentos-divida-svg',role:'group','aria-label':'Pagamentos anuais das demais operações declarados no PVL, em reais. Selecione um ano para ver o valor exato.'});
+    svg.appendChild(criar('text',{x:esquerda,y:24,class:'pagamentos-divida-eixo'},unidade===1e9?'R$ bilhões':unidade===1e6?'R$ milhões':'R$'));
+    for (let i=0;i<=5;i++) {
+        const valor=alto*i/5;
+        svg.append(criar('line',{x1:esquerda,x2:direita,y1:y(valor),y2:y(valor),class:'pagamentos-divida-grade'}),
+            criar('text',{x:esquerda-10,y:y(valor)+4,'text-anchor':'end',class:'pagamentos-divida-eixo'},curto.format(valor/unidade)));
+    }
+    const detalhe=elementoFiscal('p','pagamentos-divida-selecionado');
+    detalhe.setAttribute('aria-live','polite');
+    const mostrar=ano=>{
+        detalhe.textContent=`${ano} · ${valores.has(ano)?formatarMoeda(valores.get(ano)):'Pagamento não informado'}`;
+        svg.querySelectorAll('.pagamentos-divida-ano').forEach(g=>g.setAttribute('aria-pressed',String(Number(g.dataset.ano)===ano)));
+    };
+    anos.forEach((ano,i)=>{
+        const px=esquerda+(i+.5)*(direita-esquerda)/anos.length;
+        const valor=valores.get(ano);
+        const g=criar('g',{class:'pagamentos-divida-ano',role:'button',tabindex:0,'data-ano':ano,'aria-pressed':'false',
+            'aria-label':`${ano}: ${valor===undefined?'pagamento não informado':formatarMoeda(valor)}`});
+        g.appendChild(criar('rect',{x:px-19,y:35,width:38,height:267,rx:4,class:'pagamentos-divida-foco'}));
+        if(valor!==undefined) {
+            const barra=criar('rect',{x:px-12,y:y(valor),width:24,height:260-y(valor),rx:3,class:'pagamentos-divida-barra'});
+            barra.appendChild(criar('title',{},`${ano}: ${formatarMoeda(valor)}`));
+            g.appendChild(barra);
+            if(ano===pico.ano || valor===0) g.appendChild(criar('text',{x:px,y:y(valor)-9,'text-anchor':'middle',class:'pagamentos-divida-eixo'},curto.format(valor/unidade)));
+        } else g.appendChild(criar('text',{x:px,y:249,'text-anchor':'middle',class:'pagamentos-divida-eixo'},'N.D.'));
+        g.appendChild(criar('text',{x:px,y:289,'text-anchor':'middle',class:'pagamentos-divida-eixo'},ano));
+        g.addEventListener('click',()=>mostrar(ano));g.addEventListener('focus',()=>mostrar(ano));
+        g.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();mostrar(ano);}});
+        svg.appendChild(g);
+    });
+    const rolagem=elementoFiscal('div','pagamentos-divida-rolagem');rolagem.appendChild(svg);
+    card.append(rolagem,detalhe);
+    for (const saldo of referencia.saldos_sem_ano??[]) card.appendChild(elementoFiscal('p','pagamentos-divida-nota',`Saldo “${saldo.rotulo}” sem ano definido: ${formatarMoeda(saldo.demais_operacoes)}. Apresentado separadamente do cronograma anual.`));
+    const snapshot=referencia.snapshot??{};
+    card.appendChild(elementoFiscal('p','pagamentos-divida-nota',`Referência parcial · PVL ${snapshot.numeroPvl||snapshot.idPleito} · data ${snapshot.data||'não informada'} · consulta ${referencia.consultado_em?new Date(referencia.consultado_em).toLocaleString('pt-BR'):'não informada'} · SADIPEM. Os pagamentos são os declarados neste PVL; não comprovam cobertura de toda a dívida estadual.`));
+    if (referencia.motivos?.length) {
+        const detalhes=elementoFiscal('details','pagamentos-divida-nota');detalhes.appendChild(elementoFiscal('summary','','Observações da fonte'));
+        for(const motivo of referencia.motivos) detalhes.appendChild(elementoFiscal('p','',motivo));
+        card.appendChild(detalhes);
+    }
+    mostrar(pico.ano);
+    return card;
+}
+
 function renderizarResumoOuro(destino, regras, exercicio) {
     destino.replaceChildren();
     const anterior = regras?.[0], atual = regras?.[1];
@@ -533,6 +609,7 @@ function renderizarVisaoFiscal(painel) {
     if (capag?.observacao) conjunto.appendChild(elementoFiscal('p', 'capag-observacao', capag.observacao));
     indicadores.appendChild(conjunto);
     indicadores.appendChild(criarHistoricoDividaRcl(painel.historico_divida_rcl));
+    indicadores.appendChild(criarPagamentosDivida(painel.pagamentosDivida));
 
     renderizarResumoOuro(document.getElementById('ouro-teto-dashboard'), painel.regra_ouro, painel.exercicio);
     const homeLimites = document.getElementById('home-limites');

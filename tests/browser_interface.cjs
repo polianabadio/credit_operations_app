@@ -7,6 +7,7 @@ const {chromium} = require('playwright');
 const root = path.resolve(__dirname, '../src/web');
 const output = path.resolve(__dirname, '../.ui-preview');
 const painel = {
+    pagamentosDivida: {status:'Disponível',ano_inicial:2026,pagamentos:{2026:'2000000000',2027:'2500000000',2029:'0'},snapshot:{idPleito:1,numeroPvl:'PVL teste',data:'2026-07-30'},consultado_em:'2026-10-29T10:00:00',saldos_sem_ano:[{rotulo:'Restante a pagar',demais_operacoes:'3000000000'}],motivos:[]},
     exercicio: 2026, ultima_consulta: '2026-10-28T16:00:00', dados_disponiveis: 10,
     historico_divida_rcl: Array.from({length:12},(_,i)=>({ano:2015+i,periodo:i===11?2:3,parcial:i===11,
         divida_consolidada:String(20000000000+i*800000000),rcl:String(25000000000+i*2000000000),
@@ -71,6 +72,20 @@ const server = http.createServer((req,res) => {
         await page.keyboard.press('Enter');
         assert(!await page.locator('.painel-ponte-conteudo').isVisible());
         await page.locator('.painel-hero').screenshot({path:path.join(output,'dashboard-titulo-branco.png')});
+        await page.evaluate(p=>renderizarVisaoFiscal(p),painel);
+        assert.equal(await page.locator('.pagamentos-divida-ano').count(),4);
+        assert.equal(await page.locator('.pagamentos-divida-barra').count(),3);
+        assert.match(await page.locator('.pagamentos-divida-pico').textContent(),/2027.*2\.500\.000\.000,00/);
+        assert.match(await page.locator('.pagamentos-divida').textContent(),/Restante a pagar/);
+        await page.locator('.pagamentos-divida-ano[data-ano="2028"] text').last().click();
+        assert.match(await page.locator('.pagamentos-divida-selecionado').textContent(),/2028 · Pagamento não informado/);
+        await page.locator('.pagamentos-divida-ano[data-ano="2029"] text').last().click();
+        assert.match(await page.locator('.pagamentos-divida-selecionado').textContent(),/2029.*0,00/);
+        await page.locator('.pagamentos-divida-ano[data-ano="2027"]').focus();
+        await page.keyboard.press('Enter');
+        assert.match(await page.locator('.pagamentos-divida-selecionado').textContent(),/2027.*2\.500/);
+        await page.locator('.pagamentos-divida').evaluate(el=>el.scrollIntoView({block:'center'}));
+        await page.locator('.pagamentos-divida').screenshot({path:path.join(output,'dashboard-pagamentos-divida.png')});
         assert.equal(await page.locator('.ouro-componente-trilho span').count(),2);
         assert.match(await page.locator('.ouro-margem > strong').textContent(),/6\.500\.000\.000,00/);
         assert.match(await page.locator('.ouro-referencia').textContent(),/4º bimestre de 2026/);
