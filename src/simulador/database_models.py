@@ -85,6 +85,36 @@ class CapagIndicadores(Base):
     liquidez_relativa = Column(Numeric(18, 6), nullable=False)
     nota_liquidez_relativa = Column(String(10), nullable=False)
 
+class CapagHistorico(Base):
+    __tablename__ = 'capag_historico'
+    ano_publicacao = Column(Integer, primary_key=True)
+    uf = Column(String(2), primary_key=True)
+    ano_base = Column(Integer)
+    nota = Column(String(10), nullable=False)
+    fonte = Column(String(1000), nullable=False)
+    revisao = Column(Boolean, nullable=False, default=False)
+    observacao = Column(String(4000))
+    consultado_em = Column(DateTime, nullable=False)
+
+
+class CapagHistoricoIndicadores(Base):
+    __tablename__ = 'capag_historico_indicadores'
+    ano_publicacao = Column(Integer, primary_key=True)
+    uf = Column(String(2), primary_key=True)
+    fonte = Column(String(1000), nullable=False)
+    valores = Column(String(4000), nullable=False)
+
+
+class CapagComplemento(Base):
+    """Campos adicionais da mesma publicação, sem migrar tabelas existentes."""
+    __tablename__ = 'capag_complemento'
+    uf = Column(String(2), primary_key=True)
+    ano_publicacao = Column(Integer, nullable=False)
+    fonte = Column(String(1000), nullable=False)
+    ranking = Column(String(20))
+    observacao = Column(String(4000))
+
+
 class RREO(Base):
     __tablename__ = 'rreo'
 

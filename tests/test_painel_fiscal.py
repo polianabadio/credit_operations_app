@@ -26,6 +26,7 @@ class SessaoFake:
 def test_painel_sem_dados_nao_inventa_indicadores(monkeypatch):
     monkeypatch.setattr(painel.db, 'session', SessaoFake(None))
     monkeypatch.setattr(painel, 'obter_capag', lambda: None)
+    monkeypatch.setattr(painel, 'obter_historico_divida_rcl', lambda ano: [])
     resposta = painel.obter_painel_fiscal()
     assert resposta['exercicio'] is None
     assert resposta['rcl'] is None
@@ -40,6 +41,7 @@ def test_painel_reusa_dados_e_nao_inclui_nova_operacao(monkeypatch):
     monkeypatch.setattr(painel, 'obter_limite_mga_publicado', lambda ano: None)
     monkeypatch.setattr(painel, '_ultimo_servico_realizado', lambda ano: None)
     monkeypatch.setattr(painel, 'obter_capag', lambda: None)
+    monkeypatch.setattr(painel, 'obter_historico_divida_rcl', lambda ano: [])
     monkeypatch.setattr(painel, 'obter_rcl_ajustada_endividamento', lambda ano: {
         'valor': Decimal('100.00'), 'periodo': 4,
         'anexo': 'RREO-Anexo 03', 'origem': 'SICONFI/RREO'})

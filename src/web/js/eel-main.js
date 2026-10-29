@@ -200,21 +200,35 @@ async function executarFluxoCredito(event) {
     }
 }
 
+function mesmaBaseMargemPublica(anterior, atual) {
+    const base = painel => JSON.stringify([painel?.exercicio, painel?.rcl ?? null, painel?.fluxo_credito ?? null]);
+    return base(anterior) === base(atual);
+}
+
 async function carregarSadipemLimites() {
     if (consultaSadipemEmCurso) return consultaSadipemEmCurso;
     if (!painelFiscalAtual?.exercicio) return;
+    if (painelFiscalAtual.margemPublica && painelFiscalAtual.margemPublica.status !== 'Consultando') return;
+    const painelConsultado = painelFiscalAtual;
+    painelConsultado.margemPublica = {status: 'Consultando', rows: []};
+    renderizarVisaoFiscal(painelConsultado);
     consultaSadipemEmCurso = (async () => {
         try {
             const resposta = await eel.obter_comprometimento_sadipem_py()();
+            if (painelFiscalAtual !== painelConsultado) return;
             if (resposta.status !== 'sucesso') throw new Error(resposta.mensagem);
             painelFiscalAtual.sadipem = resposta.sadipem;
+            painelFiscalAtual.margemPublica = resposta.margemPublica ?? {status: 'Indisponível', rows: [], motivos: ['A consulta não retornou a memória da margem pública.']};
             renderizarVisaoFiscal(painelFiscalAtual);
         } catch (error) {
+            if (painelFiscalAtual !== painelConsultado) return;
             console.error('Erro ao consultar SADIPEM:', error);
             painelFiscalAtual.sadipem = {statusDadosMga: 'Unavailable', motivo: 'API_ERROR'};
+            painelFiscalAtual.margemPublica = {status: 'Indisponível', rows: [], motivos: ['Não foi possível consultar a margem no SADIPEM.']};
             renderizarVisaoFiscal(painelFiscalAtual);
         } finally {
             consultaSadipemEmCurso = null;
+            if (painelFiscalAtual !== painelConsultado) carregarSadipemLimites();
         }
     })();
     return consultaSadipemEmCurso;
@@ -224,9 +238,19 @@ async function carregarPainelFiscal() {
     try {
         const resposta = await eel.obter_painel_fiscal_py()();
         if (resposta.status !== 'sucesso') throw new Error(resposta.mensagem);
-        painelFiscalAtual = resposta.painel;
-        renderizarPainelFiscal(resposta.painel);
-        if (!document.getElementById('secao-limites').classList.contains('hidden')) carregarSadipemLimites();
+        const novo = resposta.painel;
+        if (painelFiscalAtual && mesmaBaseMargemPublica(painelFiscalAtual, novo)) {
+            if (consultaSadipemEmCurso) {
+                // Preserva a identidade do painel ao atualizar apenas os metadados fiscais.
+                Object.assign(painelFiscalAtual, novo);
+            } else {
+                novo.sadipem = painelFiscalAtual.sadipem;
+                novo.margemPublica = painelFiscalAtual.margemPublica;
+                painelFiscalAtual = novo;
+            }
+        } else painelFiscalAtual = novo;
+        renderizarPainelFiscal(painelFiscalAtual);
+        carregarSadipemLimites();
     } catch (error) {
         console.error('Erro ao carregar painel fiscal:', error);
         document.getElementById('painel-estado-dados').textContent = 'Não foi possível carregar os dados';

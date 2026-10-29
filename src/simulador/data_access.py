@@ -8,6 +8,7 @@ pelo motor de regras.
 import unicodedata
 from calendar import monthrange
 from datetime import date
+from decimal import Decimal, localcontext
 
 from sqlalchemy import and_, func
 
@@ -121,6 +122,102 @@ def obter_registros_dcl(ano):
     ).all()
     return [{campo: getattr(row, campo) for campo in
              ('exercicio', 'periodo', 'conta', 'coluna', 'valor')} for row in rows]
+
+
+def obter_posicao_monetaria_siconfi(ano_limite):
+    """Valores publicados em reais, sem derivação dos percentuais CAPAG.
+
+    Cada anexo conserva seu último exercício/período. Ausência, nulo ou
+    duplicidade nesse período não autoriza recuo para um saldo anterior.
+    """
+    grupos = {}
+    for modelo, anexo in ((RGF, 'RGF-Anexo 02'), (RREO, 'RREO-Anexo 01')):
+        consulta = db.session.query(modelo).filter(
+            modelo.uf == 'GO', modelo.esfera == 'E', modelo.anexo == anexo,
+            modelo.exercicio <= ano_limite)
+        if modelo is RGF:
+            consulta = consulta.filter(RGF.co_poder == 'E', RGF.periodicidade == 'Q')
+        linhas = consulta.order_by(modelo.exercicio.desc(), modelo.periodo.desc()).all()
+        referencia = (linhas[0].exercicio, linhas[0].periodo) if linhas else None
+        grupos[anexo] = (referencia, [l for l in linhas
+                                    if (l.exercicio, l.periodo) == referencia])
+    especificacoes = (
+        ('divida_consolidada', 'Dívida consolidada', 'RGF-Anexo 02',
+         'DÍVIDA CONSOLIDADA - DC (I)', 'estoque'),
+        ('rcl', 'RCL · últimos 12 meses', 'RGF-Anexo 02',
+         'RECEITA CORRENTE LÍQUIDA - RCL (IV)', 'receita_12_meses'),
+        ('receitas_correntes', 'Receitas correntes realizadas', 'RREO-Anexo 01',
+         'RECEITAS CORRENTES', 'acumulado_exercicio'),
+        ('despesas_correntes', 'Despesas correntes liquidadas', 'RREO-Anexo 01',
+         'DESPESAS CORRENTES', 'acumulado_exercicio'),
+        ('caixa_bruto', 'Disponibilidade de caixa bruta', 'RGF-Anexo 02',
+         'Disponibilidade de Caixa Bruta', 'estoque'),
+    )
+    resultado = []
+    for chave, nome, anexo, conta, natureza in especificacoes:
+        referencia, linhas = grupos[anexo]
+        ano, periodo = referencia if referencia else (None, None)
+        coluna = (f'Até o {periodo}º Quadrimestre' if anexo.startswith('RGF')
+                  else 'Até o Bimestre (c)' if chave == 'receitas_correntes'
+                  else COLUNA_LIQUIDADA)
+        encontrados = [l for l in linhas
+                       if _normalizar_rotulo(l.conta) == _normalizar_rotulo(conta)
+                       and _normalizar_rotulo(l.coluna) == _normalizar_rotulo(coluna)]
+        linha = encontrados[0] if len(encontrados) == 1 else None
+        valor = linha.valor if linha else None
+        resultado.append({
+            'chave': chave, 'nome': nome, 'valor': str(valor) if valor is not None else None,
+            'ano': ano, 'periodo': periodo, 'periodicidade': 'Q' if anexo.startswith('RGF') else 'B',
+            'anexo': anexo, 'conta': linha.conta if linha else conta,
+            'coluna': linha.coluna if linha else coluna,
+            'origem': 'SICONFI/RGF' if anexo.startswith('RGF') else 'SICONFI/RREO',
+            'escopo': 'Executivo' if anexo.startswith('RGF') else 'Estado de Goiás',
+            'natureza': natureza,
+            'estado': 'ambiguo' if len(encontrados) > 1 else 'disponivel' if valor is not None else 'ausente',
+        })
+    return resultado
+
+
+def obter_historico_divida_rcl(ano_limite):
+    """DC e RCL publicada do mesmo RGF/período, uma posição por exercício."""
+    linhas = db.session.query(RGF).filter(
+        RGF.uf == 'GO', RGF.esfera == 'E', RGF.co_poder == 'E',
+        RGF.periodicidade == 'Q', RGF.anexo == 'RGF-Anexo 02',
+        RGF.exercicio <= ano_limite).order_by(RGF.exercicio, RGF.periodo.desc()).all()
+    anos = {}
+    for linha in linhas:
+        anos.setdefault(linha.exercicio, []).append(linha)
+    contas = {
+        'divida_consolidada': {'DIVIDA CONSOLIDADA - DC (I)'},
+        'rcl': {'RECEITA CORRENTE LIQUIDA - RCL', 'RECEITA CORRENTE LIQUIDA - RCL (IV)'},
+        'percentual_dcl_rcl': {'% DA DCL SOBRE A RCL (III/RCL)', '% DA DCL SOBRE A RCL AJUSTADA (III/VI)'},
+    }
+    resultado = []
+    for ano, grupo in anos.items():
+        periodo = max(l.periodo for l in grupo)
+        coluna = _normalizar_rotulo(f'Até o {periodo}º Quadrimestre')
+        item = {'ano': ano, 'periodo': periodo, 'parcial': periodo < 3,
+                'anexo': 'RGF-Anexo 02', 'origem': 'SICONFI/RGF', 'escopo': 'Executivo',
+                'percentual_dc_rcl': None, 'componentes': {}}
+        for chave, nomes in contas.items():
+            encontrados = [l for l in grupo if l.periodo == periodo
+                           and _normalizar_rotulo(l.conta) in nomes
+                           and _normalizar_rotulo(l.coluna) == coluna]
+            linha = encontrados[0] if len(encontrados) == 1 else None
+            valor = linha.valor if linha else None
+            item[chave] = str(valor) if valor is not None else None
+            item['componentes'][chave] = {
+                'conta': linha.conta if linha else None, 'coluna': linha.coluna if linha else None,
+                'estado': 'ambiguo' if len(encontrados) > 1 else 'disponivel' if valor is not None else 'ausente'}
+        conta_percentual = item['componentes']['percentual_dcl_rcl']['conta']
+        item['base_dcl_rcl'] = ('RCL ajustada' if 'AJUSTADA' in _normalizar_rotulo(conta_percentual)
+                                else 'RCL' if conta_percentual else None)
+        if item['divida_consolidada'] is not None and item['rcl'] is not None and Decimal(item['rcl']) > 0:
+            with localcontext() as contexto:
+                contexto.prec = 50
+                item['percentual_dc_rcl'] = str(Decimal(item['divida_consolidada']) / Decimal(item['rcl']) * 100)
+        resultado.append(item)
+    return resultado
 
 
 def obter_registros_dtp(ano):

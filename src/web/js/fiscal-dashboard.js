@@ -201,76 +201,48 @@ function criarDetalheMargemCredito(dado) {
 }
 
 function criarResumoLimite(config, dado) {
-    const card = elementoFiscal('article', 'limite-resumo');
-    const estado = situacaoLimite(dado);
-    const resumo = (rotulo, valor) => {
-        const linha = elementoFiscal('div', 'limite-resumo-linha');
-        linha.append(elementoFiscal('span', '', rotulo), elementoFiscal('strong', '', valor));
-        card.appendChild(linha);
-    };
-    const sigla = elementoFiscal('span', 'limite-resumo-sigla', config.sigla);
-    sigla.title = config.descricao;
+    const card = elementoFiscal('article', 'limite-grafico');
+    card.dataset.limite = config.chave;
+    card.appendChild(elementoFiscal('h3', '', config.chave === 'mga' ? 'Operações de crédito' : config.nome));
+    const principal = elementoFiscal('div','limite-grafico-principal');
     if (config.chave === 'mga') {
-        card.append(elementoFiscal('h3', '', config.nome), sigla);
         const atual = linhaMargemCredito(dado) || linhaMargemPublica(dado);
-        resumo(atual?.referenciaPublica ? 'Margem segundo o PVL' : 'Margem disponível no exercício', atual ? formatarMoeda(atual.margemEstimada) : 'Não determinada');
-        resumo('Limite legal', `${formatarPercentual(dado.limite)} da RCL projetada`);
-        if (atual) resumo('Exercício', String(atual.ano));
-        card.appendChild(elementoFiscal('p', 'limite-resumo-descricao',
-            'Saldo do teto anual após as liberações das operações existentes incluídas.'));
-        const [status, classe] = badgeQualidade(dado, 'mga');
-        card.appendChild(elementoFiscal('span', `qualidade-badge ${classe}`, status));
-        if (!atual) card.appendChild(elementoFiscal('p', 'limite-resumo-nota',
-            'A margem depende da RCL projetada e da cobertura das demais liberações; o teto bruto não é margem disponível.'));
+        card.classList.add(!atual ? 'limite-grafico-indisponivel' : atual.margemEstimada < 0 ? 'limite-grafico-excedido' : 'limite-grafico-atual');
+        card.appendChild(elementoFiscal('p','limite-grafico-referencia',atual
+            ? `${atual.referenciaPublica ? 'Referência do PVL' : 'Inventário confirmado'} · ${atual.ano}`
+            : badgeQualidade(dado,'mga')[0]));
+        principal.append(elementoFiscal('span','',atual?.referenciaPublica?'Margem segundo o PVL':'Margem no exercício'),
+            elementoFiscal('strong','',atual?formatarMoeda(atual.margemEstimada):'Não determinada'));
+        card.append(principal,elementoFiscal('p','limite-grafico-contexto', atual?.referenciaPublica
+            ? 'Referência parcial das operações informadas nesse PVL.' : atual
+            ? 'Saldo anual antes da nova operação.' : 'Aguardando referência suficiente para calcular a margem.'));
+        card.appendChild(elementoFiscal('p','limite-grafico-teto',`Limite anual: ${formatarPercentual(dado.limite)} da RCL projetada`));
+        if (atual && atual.margemEstimada < 0) card.appendChild(elementoFiscal('span','limite-grafico-aviso','Saldo negativo'));
         return card;
     }
-    card.append(elementoFiscal('h3', '', config.nome), sigla);
-    if (config.chave === 'caed') {
-        if (dado.historico) card.appendChild(elementoFiscal('span', 'limite-badge-historico',
-            `Dado histórico — ${dado.ano ?? 'ano não informado'}`));
-        resumo(dado.historico ? 'Última referência disponível' : 'Serviço da dívida',
-            dado.valor == null ? 'Dado indisponível' : formatarPercentual(dado.valor));
-        resumo('Limite', formatarPercentual(dado.limite));
-        if (dado.valor != null) resumo(dado.historico ? 'Margem na referência' : 'Margem até o limite',
-            `${formatarPercentual(dado.limite - dado.valor)} p.p.`);
-        card.appendChild(elementoFiscal('p', 'limite-resumo-descricao',
-            'Indica o comprometimento da Receita Corrente Líquida com amortizações, juros e encargos da dívida.'));
-        card.appendChild(elementoFiscal('p', 'limite-resumo-descricao',
-            'Uma nova operação altera este indicador conforme seu prazo, juros, carência, amortização e cronograma de pagamentos.'));
-    } else {
-        resumo('DCL em relação à RCL', dado.valor == null ? 'Dado indisponível' : formatarPercentual(dado.valor));
-        resumo('Limite legal', `${formatarPercentual(dado.limite)} da RCL`);
-        if (dado.valor != null) {
-            resumo('Parcela do limite utilizada', formatarPercentual(dado.valor / dado.limite * 100));
-            resumo('Margem até o limite', `${formatarPercentual(dado.limite - dado.valor)} p.p.`);
-        }
-        card.appendChild(elementoFiscal('p', 'limite-resumo-descricao',
-            'Mostra o estoque da Dívida Consolidada Líquida em relação à Receita Corrente Líquida.'));
-        card.appendChild(elementoFiscal('p', 'limite-resumo-descricao',
-            'Esse indicador mede o estoque acumulado de endividamento, diferentemente do limite anual de fluxo de operações de crédito.'));
+    const limite = Number(dado.limite);
+    const valor = dado.valor == null || !Number.isFinite(Number(dado.valor)) ? null : Number(dado.valor);
+    const disponivel = valor !== null && Number.isFinite(limite) && limite > 0;
+    const excedido = disponivel && valor > limite;
+    card.classList.add(!disponivel ? 'limite-grafico-indisponivel' : excedido ? 'limite-grafico-excedido' : dado.historico ? 'limite-grafico-historico' : 'limite-grafico-atual');
+    card.appendChild(elementoFiscal('p','limite-grafico-referencia', dado.historico
+        ? `Referência histórica · ${dado.ano}` : referenciaFiscal(dado)));
+    principal.append(elementoFiscal('span','',config.sigla),elementoFiscal('strong','',valor===null?'Não disponível':formatarPercentual(valor)));
+    card.appendChild(principal);
+    const comparacao = elementoFiscal('div','limite-comparacao');
+    const trilho = elementoFiscal('div','limite-comparacao-trilho');
+    trilho.setAttribute('role','img');
+    trilho.setAttribute('aria-label',`${config.sigla}: ${valor===null?'não disponível':formatarPercentual(valor)} da RCL; limite ${formatarPercentual(dado.limite)} da RCL${dado.historico?`, referência histórica de ${dado.ano}`:''}`);
+    if (disponivel) {
+        const barra = elementoFiscal('span','limite-comparacao-barra');
+        barra.style.width = `${Math.max(0,Math.min(100,valor/limite*100))}%`;
+        trilho.appendChild(barra);
     }
-    const visual = elementoFiscal('div', 'limite-resumo-visual');
-    if (dado.valor != null && dado.limite > 0) {
-        const uso = dado.valor / dado.limite * 100;
-        const usoTexto = dado.historico
-            ? `${formatarPercentual(uso)} do limite utilizado na referência histórica de ${dado.ano ?? 'ano não informado'}`
-            : `${formatarPercentual(uso)} do limite legal utilizado`;
-        visual.appendChild(elementoFiscal('span', 'limite-resumo-dado', usoTexto));
-        const trilho = elementoFiscal('div', 'painel-progress-track');
-        trilho.setAttribute('role', 'progressbar');
-        trilho.setAttribute('aria-label', `${config.nome}: ${usoTexto}`);
-        trilho.setAttribute('aria-valuenow', String(Math.max(0, Math.min(100, uso))));
-        trilho.setAttribute('aria-valuemin', '0');
-        trilho.setAttribute('aria-valuemax', '100');
-        const preenchimento = elementoFiscal('span', dado.historico ? 'painel-progress-historico' : estado.classe === 'excedido' ? 'painel-progress-excedido' : '');
-        preenchimento.style.width = `${Math.max(0, Math.min(100, uso))}%`;
-        trilho.appendChild(preenchimento);
-        visual.appendChild(trilho);
-    } else {
-        visual.appendChild(elementoFiscal('span', 'limite-resumo-dado', 'Utilização não disponível'));
-    }
-    card.appendChild(visual);
-    if (dado.valor != null) card.appendChild(elementoFiscal('span', 'painel-card-ref', referenciaFiscal(dado)));
+    const escala = elementoFiscal('div','limite-comparacao-escala');
+    escala.append(elementoFiscal('span','','0%'),elementoFiscal('span','',`Limite: ${formatarPercentual(dado.limite)}`));
+    comparacao.append(trilho,escala);
+    card.append(comparacao,elementoFiscal('p','limite-grafico-contexto','Percentuais sobre a RCL.'));
+    if (excedido) card.appendChild(elementoFiscal('span','limite-grafico-aviso','Acima do limite'));
     return card;
 }
 
@@ -338,73 +310,231 @@ function criarDetalheLimitePagina(config, dado, exercicioAtual) {
     return bloco;
 }
 
+function classificacaoVisualCapag(nota) {
+    if (['A+', 'A', 'B+', 'B'].includes(nota)) return {classe: 'capag-favoravel', icone: '✓'};
+    if (['C', 'D'].includes(nota)) return {classe: 'capag-desfavoravel', icone: '!'};
+    return {classe: 'capag-sem-nota', icone: '—'};
+}
+
+function seloNotaCapag(nota) {
+    const visual = classificacaoVisualCapag(nota);
+    return elementoFiscal('span', `fiscal-badge capag-selo ${visual.classe}`,
+        `${visual.icone} ${nota && nota !== 'N.D.' ? `Nota ${nota}` : 'Nota indisponível'}`);
+}
+
+function criarHistoricoDividaRcl(historico) {
+    const card = elementoFiscal('section', 'divida-historico');
+    card.append(elementoFiscal('h2', '', 'Evolução da dívida e da receita'),
+        elementoFiscal('p', 'painel-help', 'Goiás · Dívida consolidada e Receita Corrente Líquida (RCL) por ano'));
+    const serie = [...(historico ?? [])].sort((a,b) => a.ano-b.ano);
+    if (!serie.length) {
+        card.appendChild(elementoFiscal('p', 'painel-help', 'Histórico ainda não disponível. Atualize os dados do SICONFI.'));
+        return card;
+    }
+    const campos = [
+        {chave: 'divida_consolidada', nome: 'Dívida bruta (DC)', classe: 'divida-historico-dc'},
+        {chave: 'rcl', nome: 'RCL · últimos 12 meses', classe: 'divida-historico-rcl'}
+    ];
+    const numero = valor => valor == null || valor === '' || !Number.isFinite(Number(valor)) ? null : Number(valor);
+    const legenda = elementoFiscal('div', 'divida-historico-legenda');
+    for (const campo of campos) legenda.appendChild(elementoFiscal('span', campo.classe, campo.nome));
+    legenda.appendChild(elementoFiscal('span', 'divida-historico-dcl-legenda', 'DCL/RCL · linha · escala à direita'));
+    card.appendChild(legenda);
+    const valores = serie.flatMap(item => campos.map(c => numero(item[c.chave]))).filter(v=>v!==null);
+    const magnitude = Math.max(1, ...valores.map(Math.abs));
+    const passo = Math.pow(10, Math.floor(Math.log10(magnitude))) / 2;
+    const baixo = Math.floor(Math.min(0,...valores)/passo)*passo;
+    const alto = Math.max(passo,Math.ceil(Math.max(0,...valores)/passo)*passo);
+    const largura = Math.max(840,serie.length*88+160), inicio = 75, fim = largura-85;
+    const y = valor => 305-(valor-baixo)/(alto-baixo)*230;
+    const percentuais = serie.map(item=>numero(item.percentual_dcl_rcl)).filter(v=>v!==null);
+    const minimoPercentual = Math.floor(Math.min(0,...percentuais)/50)*50;
+    const maximoPercentual = Math.max(200,Math.ceil(Math.max(0,...percentuais)/50)*50);
+    const yPercentual = valor=>305-(valor-minimoPercentual)/(maximoPercentual-minimoPercentual)*230;
+    const unidade = magnitude >= 1e9 ? 1e9 : magnitude >= 1e6 ? 1e6 : 1;
+    const numeroCurto = new Intl.NumberFormat('pt-BR',{maximumFractionDigits:1});
+    const criar = (tag,atributos,texto) => {
+        const el = document.createElementNS('http://www.w3.org/2000/svg',tag);
+        for (const [chave,valor] of Object.entries(atributos)) el.setAttribute(chave,String(valor));
+        if (texto !== undefined) el.textContent=texto;
+        return el;
+    };
+    const svg = criar('svg',{viewBox:`0 0 ${largura} 365`,class:'divida-historico-svg',role:'group','aria-label':'Colunas de dívida bruta e RCL em reais, eixo esquerdo. Linha DCL/RCL em percentual, eixo direito. Selecione um ano para ver os valores exatos.'});
+    svg.appendChild(criar('text',{x:inicio,y:23,class:'divida-historico-eixo'},unidade===1e9?'R$ bilhões':unidade===1e6?'R$ milhões':'R$'));
+    for (let i=0;i<=5;i++) {
+        const valor=baixo+(alto-baixo)*i/5, py=y(valor);
+        svg.append(criar('line',{x1:inicio,x2:fim,y1:py,y2:py,class:'divida-historico-grade'}),
+            criar('text',{x:inicio-12,y:py+4,'text-anchor':'end',class:'divida-historico-eixo'},numeroCurto.format(valor/unidade)));
+    }
+    svg.appendChild(criar('text',{x:largura-10,y:23,'text-anchor':'end',class:'divida-historico-eixo'},'DCL/RCL (%)'));
+    for (let i=0;i<=5;i++) {
+        const valor=minimoPercentual+(maximoPercentual-minimoPercentual)*i/5;
+        svg.appendChild(criar('text',{x:fim+12,y:yPercentual(valor)+4,class:'divida-historico-eixo'},`${numeroCurto.format(valor)}%`));
+    }
+    const detalhe = elementoFiscal('div','divida-historico-detalhe');
+    detalhe.setAttribute('aria-live','polite');
+    const mostrar = item => {
+        detalhe.replaceChildren();
+        detalhe.appendChild(elementoFiscal('strong','divida-historico-referencia',`${item.ano} · ${item.periodo}º quadrimestre${item.parcial?' · parcial':''}`));
+        for (const campo of campos) {
+            const bloco=elementoFiscal('div');
+            const valor=numero(item[campo.chave]);
+            bloco.append(elementoFiscal('span','',campo.nome),elementoFiscal('strong','',valor===null?'Não disponível':formatarMoeda(valor)));
+            detalhe.appendChild(bloco);
+        }
+        const proporcao=elementoFiscal('div');
+        proporcao.append(elementoFiscal('span','',`DCL / ${item.base_dcl_rcl || 'RCL'}`),elementoFiscal('strong','',numero(item.percentual_dcl_rcl)===null?'Não disponível':formatarPercentual(item.percentual_dcl_rcl)));
+        detalhe.appendChild(proporcao);
+        svg.querySelectorAll('.divida-historico-ano').forEach(g=>g.setAttribute('aria-pressed',String(Number(g.dataset.ano)===Number(item.ano))));
+    };
+    serie.forEach((item,i) => {
+        const centro=inicio+(i+.5)*(fim-inicio)/serie.length;
+        const grupo=criar('g',{class:'divida-historico-ano',role:'button',tabindex:0,'data-ano':item.ano,'aria-pressed':'false',
+            'aria-label':`${item.ano}, ${item.periodo}º quadrimestre${item.parcial?', parcial':''}. ${campos.map(c=>`${c.nome}: ${numero(item[c.chave])===null?'não disponível':formatarMoeda(item[c.chave])}`).join('. ')}. DCL/${item.base_dcl_rcl || 'RCL'}: ${numero(item.percentual_dcl_rcl)===null?'não disponível':formatarPercentual(item.percentual_dcl_rcl)}`});
+        grupo.appendChild(criar('rect',{x:centro-39,y:34,width:78,height:325,rx:6,class:'divida-historico-selecao'}));
+        campos.forEach((campo,j) => {
+            const valor=numero(item[campo.chave]),px=centro+(j===0?-25:3);
+            if (valor===null) {
+                grupo.appendChild(criar('text',{x:px+11,y:y(0)-8,'text-anchor':'middle',class:'divida-historico-eixo'},'N.D.'));
+                return;
+            }
+            const barra=criar('rect',{x:px,y:Math.min(y(valor),y(0)),width:22,height:Math.abs(y(valor)-y(0)),rx:3,class:`divida-historico-barra ${campo.classe}`});
+            barra.appendChild(criar('title',{},`${item.ano} · ${campo.nome}: ${formatarMoeda(valor)} · ${item.periodo}º quadrimestre`));
+            grupo.append(barra,criar('text',{x:px+11,y:valor>=0?y(valor)-8:y(valor)+14,'text-anchor':'middle',class:`divida-historico-valor ${campo.classe}`},numeroCurto.format(valor/unidade)));
+        });
+        grupo.appendChild(criar('text',{x:centro,y:341,'text-anchor':'middle',class:'divida-historico-eixo'},`${item.ano}${item.parcial?'*':''}`));
+        grupo.addEventListener('click',()=>mostrar(item));
+        grupo.addEventListener('focus',()=>mostrar(item));
+        grupo.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();mostrar(item);}});
+        svg.appendChild(grupo);
+    });
+    svg.append(criar('line',{x1:inicio,x2:fim,y1:yPercentual(200),y2:yPercentual(200),class:'divida-historico-limite'}),
+        criar('text',{x:fim,y:yPercentual(200)-10,'text-anchor':'end',class:'divida-historico-eixo'},'Limite DCL/RCL: 200%'));
+    let anterior = null;
+    const camadaLinha = criar('g',{class:'divida-historico-camada-dcl'});
+    serie.forEach((item,i)=>{
+        const valor=numero(item.percentual_dcl_rcl);
+        if (valor===null) { anterior=null; return; }
+        const px=inicio+(i+.5)*(fim-inicio)/serie.length, py=yPercentual(valor);
+        if (anterior && item.ano===anterior.ano+1) camadaLinha.appendChild(criar('path',{
+            d:`M ${anterior.x} ${anterior.y} L ${px} ${py}`,class:'divida-historico-linha-dcl'}));
+        const ponto=criar('circle',{cx:px,cy:py,r:4.5,tabindex:0,role:'button',class:'divida-historico-ponto-dcl',
+            'aria-label':`${item.ano} · DCL/${item.base_dcl_rcl || 'RCL'}: ${formatarPercentual(valor)}`});
+        ponto.appendChild(criar('title',{},`${item.ano} · DCL/${item.base_dcl_rcl || 'RCL'}: ${formatarPercentual(valor)} · ${item.periodo}º quadrimestre`));
+        ponto.addEventListener('click',()=>mostrar(item));
+        ponto.addEventListener('focus',()=>mostrar(item));
+        ponto.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();mostrar(item);}});
+        const rotulosColunas=campos.map(c=>numero(item[c.chave])).filter(v=>v!==null).map(v=>v>=0?y(v)-8:y(v)+14);
+        const deslocamento=[-12,18,-28,34].find(d=>rotulosColunas.every(rotulo=>Math.abs(py+d-rotulo)>14)) ?? 18;
+        camadaLinha.append(ponto,criar('text',{x:px,y:py+deslocamento,'text-anchor':'middle',class:'divida-historico-rotulo-dcl'},formatarPercentual(valor)));
+        anterior={x:px,y:py,ano:item.ano};
+    });
+    svg.appendChild(camadaLinha);
+    const rolagem=elementoFiscal('div','divida-historico-rolagem');
+    rolagem.appendChild(svg);
+    card.append(rolagem,detalhe,elementoFiscal('p','divida-historico-nota',
+        'SICONFI/RGF · Anexo 02 · Executivo de Goiás. Último quadrimestre disponível de cada ano; * ano sem o 3º quadrimestre. Selecione um ano para ver os valores exatos. Colunas em reais (eixo esquerdo); linha DCL/RCL publicada (eixo direito). Dados ausentes interrompem a linha. Não é a nota CAPAG.'));
+    mostrar(serie.at(-1));
+    return card;
+}
+
+function renderizarResumoOuro(destino, regras, exercicio) {
+    destino.replaceChildren();
+    const anterior = regras?.[0], atual = regras?.[1];
+    const memoria = atual?.dados_calculados;
+    const numero = v => v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v);
+    const margem = numero(memoria?.limite_disponivel);
+    const resumo = elementoFiscal('div','ouro-resumo');
+    const principal = elementoFiscal('div',`ouro-margem${margem!==null && margem<0?' ouro-margem-negativa':''}`);
+    principal.append(elementoFiscal('span','painel-categoria','Margem estimada no exercício'),
+        elementoFiscal('strong','',margem===null?'Dado indisponível':formatarMoeda(margem)));
+    if (margem!==null) principal.appendChild(elementoFiscal('p','ouro-formula','Despesas de capital − receitas de crédito previstas'));
+    else principal.appendChild(elementoFiscal('p','ouro-formula','Faltam dados para calcular a margem.'));
+    resumo.appendChild(principal);
+    const componentes = [
+        {nome:'Despesas de capital consideradas',valor:numero(memoria?.despesas_capital?.total),classe:'ouro-barra-capital'},
+        {nome:'Receitas de crédito previstas',valor:numero(memoria?.operacoes_credito?.total),classe:'ouro-barra-credito'}
+    ];
+    const grafico = elementoFiscal('div','ouro-comparacao');
+    const escala = Math.max(1,...componentes.map(c=>Math.abs(c.valor??0)));
+    for (const item of componentes) {
+        const linha = elementoFiscal('div','ouro-componente');
+        const cabecalho = elementoFiscal('div','ouro-componente-cabecalho');
+        const valor = item.valor===null?'Não disponível':formatarMoeda(item.valor);
+        cabecalho.append(elementoFiscal('span','',item.nome),elementoFiscal('strong','',valor));
+        const trilho = elementoFiscal('div','ouro-componente-trilho');
+        trilho.setAttribute('role','img');
+        trilho.setAttribute('aria-label',`${item.nome}: ${valor}`);
+        if (item.valor!==null) {
+            const barra = elementoFiscal('span',item.classe);
+            barra.style.width=`${Math.abs(item.valor)/escala*100}%`;
+            trilho.appendChild(barra);
+        }
+        linha.append(cabecalho,trilho); grafico.appendChild(linha);
+    }
+    resumo.appendChild(grafico); destino.appendChild(resumo);
+    const fontes = memoria?.fontes ?? [];
+    const periodo = Math.max(...fontes.map(f=>Number(f.periodo)).filter(Number.isFinite));
+    destino.appendChild(elementoFiscal('p','ouro-referencia',`${Number.isFinite(periodo)?`${periodo}º bimestre de `:'Exercício '}${atual?.ano??exercicio??'não informado'} · SICONFI/RREO${fontes.length?` · ${[...new Set(fontes.map(f=>f.anexo))].join(', ')}`:''}`));
+    const detalhes = elementoFiscal('details','ouro-detalhes-fonte');
+    detalhes.append(elementoFiscal('summary','','Ver critérios e fonte'),
+        elementoFiscal('p','','Esta margem não representa o valor máximo de uma nova contratação.'),
+        elementoFiscal('p','','A Regra de Ouro compara as receitas de operações de crédito com as despesas de capital consideradas no exercício. Neste painel, as receitas usam a previsão atualizada; as despesas incluem investimentos, inversões financeiras e amortização, nas colunas de despesas liquidadas e restos a pagar não processados.'),
+        elementoFiscal('p','','A capacidade para uma nova operação também depende dos limites de fluxo, serviço da dívida, estoque da dívida e das características da operação.'));
+    if (anterior?.situacao==='Dados insuficientes') detalhes.appendChild(elementoFiscal('p','',`Dados completos do exercício anterior (${anterior.ano}) não foram encontrados para esta verificação.`));
+    destino.appendChild(detalhes);
+}
+
 function renderizarVisaoFiscal(painel) {
     const capag = painel.capag;
-    const capagCompativel = capag && ['A+', 'A', 'B+', 'B'].includes(capag.valor);
     const indicadores = document.getElementById('painel-indicadores');
     indicadores.replaceChildren();
-    const nota = elementoFiscal('article', 'painel-indicador capag-destaque');
-    nota.append(elementoFiscal('span', 'painel-categoria', 'Capacidade de pagamento'),
-        elementoFiscal('h2', '', 'CAPAG'),
-        elementoFiscal('strong', '', capag ? `Nota ${capag.valor}` : 'Dado indisponível'),
-        elementoFiscal('span', `fiscal-badge ${capagCompativel ? 'confortavel' : 'indisponivel'}`,
-            capagCompativel ? 'Classificação elegível para análise de garantia da União' : 'Classificação não confirmada para análise de garantia da União'),
-        elementoFiscal('p', 'capag-aviso', 'Indicador publicado. Não representa autorização de contratação.'),
-        elementoFiscal('span', 'painel-card-ref', capag ? referenciaFiscal(capag) : 'Sem publicação integrada'));
-    indicadores.appendChild(nota);
-    for (const [chave, nome, descricao, complemento] of [
-        ['endividamento', 'Endividamento', 'Indica quanto a dívida consolidada bruta representa em relação à Receita Corrente Líquida.',
-            'Quanto menor o comprometimento, maior tende a ser a capacidade fiscal associada a este indicador.'],
-        ['poupanca_corrente', 'Poupança Corrente', 'Compara as despesas correntes com as receitas correntes ajustadas e indica a capacidade do ente de gerar poupança.',
-            'Quanto menor o comprometimento das receitas correntes com despesas correntes, maior tende a ser a capacidade de geração de poupança.'],
-        ['liquidez_relativa', 'Liquidez Relativa', 'Avalia a disponibilidade de caixa em relação às obrigações financeiras exigíveis.',
-            'Quanto menor o comprometimento da disponibilidade de caixa, melhor tende a ser a posição de liquidez.']
-    ]) {
+    const conjunto = elementoFiscal('section', 'capag-conjunto capag-tesouro');
+    conjunto.setAttribute('aria-label', 'Capacidade de pagamento e indicadores publicados');
+    const visual = classificacaoVisualCapag(capag?.valor);
+    const nota = elementoFiscal('article', `painel-indicador capag-destaque ${visual.classe}`);
+    const cabecalhoCapag = elementoFiscal('header', 'capag-cabecalho');
+    const tituloCapag = elementoFiscal('h2', '', 'Nota CAPAG');
+    tituloCapag.id = 'capag-titulo';
+    conjunto.setAttribute('aria-labelledby', tituloCapag.id);
+    cabecalhoCapag.append(tituloCapag, elementoFiscal('p', 'capag-subtitulo', 'Os entes federativos que obtiverem nota de Capag “A”, “A+”, “B” ou “B+” são elegíveis a obter garantia da União a operações de crédito. Para maiores informações sobre metodologia de análise de Capag, consultar a Portaria MF nº 1.583, de 13 de dezembro de 2023.'));
+    nota.setAttribute('aria-label', 'Classificação CAPAG');
+    nota.append(seloNotaCapag(capag?.valor), elementoFiscal('strong', '', capag?.valor ?? '—'));
+    const faixas = elementoFiscal('div', 'capag-faixas');
+    const campos = [
+        ['endividamento', 'Indicador I · Endividamento', 'Dívida Consolidada / Receita Corrente Líquida'],
+        ['poupanca_corrente', 'Indicador II · Poupança Corrente', 'Despesa Corrente / Receita Corrente Ajustada'],
+        ['liquidez_relativa', 'Indicador III · Liquidez Relativa', 'Disponibilidade de caixa e obrigações financeiras / Receita Corrente Líquida']
+    ];
+    for (const [chave, nome, descricao] of campos) {
         const publicado = capag?.indicadores?.[chave];
-        const card = elementoFiscal('article', 'painel-indicador');
-        card.append(elementoFiscal('span', 'painel-categoria', 'Indicador CAPAG'),
-            elementoFiscal('h2', '', nome),
+        const estado = classificacaoVisualCapag(publicado?.nota);
+        const faixa = elementoFiscal('article', `capag-indicador capag-faixa ${estado.classe}`);
+        const simbolo = elementoFiscal('span', 'capag-simbolo', estado.icone);
+        simbolo.setAttribute('aria-hidden', 'true');
+        faixa.append(simbolo, elementoFiscal('p', 'capag-formula', descricao),
+            elementoFiscal('h3', '', nome), seloNotaCapag(publicado?.nota),
             elementoFiscal('strong', '', publicado?.valor == null ? 'Dado indisponível' : formatarPercentual(publicado.valor)));
-        if (publicado?.nota) card.appendChild(elementoFiscal('span', 'fiscal-badge', `Nota ${publicado.nota}`));
-        const explicacao = elementoFiscal('details', 'indicador-explicacao');
-        explicacao.append(elementoFiscal('summary', '', 'Sobre o indicador'), elementoFiscal('p', '', descricao));
-        if (complemento) explicacao.appendChild(elementoFiscal('p', '', complemento));
-        card.appendChild(explicacao);
-        card.appendChild(elementoFiscal('span', 'painel-card-ref', publicado
-                ? `${capag.ano_base ? `Ano-base ${capag.ano_base} · ` : ''}Publicação de ${capag.ano} · ${capag.origem}`
-                : 'Aguardando publicação CAPAG completa na atualização de dados'));
-        indicadores.appendChild(card);
+        faixas.appendChild(faixa);
     }
+    const ranking = capag?.ranking;
+    const rankingVisual = classificacaoVisualCapag(ranking?.replace(/icf$/i, '').toUpperCase());
+    const faixaRanking = elementoFiscal('article', `capag-indicador capag-faixa capag-ranking ${rankingVisual.classe}`);
+    faixaRanking.append(elementoFiscal('span', 'capag-simbolo', rankingVisual.icone),
+        elementoFiscal('p', 'capag-formula', 'Qualidade da informação contábil e fiscal'),
+        elementoFiscal('h3', '', 'Ranking da qualidade fiscal'),
+        elementoFiscal('strong', '', ranking || 'Não informado nesta publicação'));
+    faixas.appendChild(faixaRanking);
+    const rodape = elementoFiscal('div', 'capag-rodape');
+    rodape.append(elementoFiscal('span', 'painel-card-ref', capag
+            ? `${capag.ano_base ? `Ano-base ${capag.ano_base} · ` : ''}${referenciaFiscal(capag)}`
+            : 'Sem publicação integrada'));
+    conjunto.append(cabecalhoCapag, nota, faixas, rodape);
+    if (capag?.observacao) conjunto.appendChild(elementoFiscal('p', 'capag-observacao', capag.observacao));
+    indicadores.appendChild(conjunto);
+    indicadores.appendChild(criarHistoricoDividaRcl(painel.historico_divida_rcl));
 
-    const tetoOuro = document.getElementById('ouro-teto-dashboard');
-    tetoOuro.replaceChildren();
-    const ouroAnterior = painel.regra_ouro?.[0];
-    const ouroAtual = painel.regra_ouro?.[1];
-    const memoriaOuro = ouroAtual?.dados_calculados;
-    const margemOuro = memoriaOuro?.limite_disponivel;
-    tetoOuro.appendChild(elementoFiscal('span', 'painel-categoria', 'Margem estimada no exercício'));
-    if (margemOuro != null && Number.isFinite(Number(margemOuro))) {
-        tetoOuro.appendChild(elementoFiscal('strong', '', formatarMoeda(Number(margemOuro))));
-        tetoOuro.appendChild(elementoFiscal('p', 'ouro-aviso',
-            'Esta margem não representa o valor máximo de uma nova contratação.'));
-        tetoOuro.appendChild(elementoFiscal('p', 'painel-help ouro-explicacao',
-            'A Regra de Ouro verifica a relação entre as receitas de operações de crédito e as despesas de capital consideradas no exercício.'));
-        tetoOuro.appendChild(elementoFiscal('p', 'painel-help ouro-explicacao',
-            'A capacidade efetiva para uma nova operação também depende dos limites de fluxo, serviço da dívida, estoque da dívida e das características financeiras da operação.'));
-        const fontesOuro = memoriaOuro.fontes ?? [];
-        const periodoOuro = Math.max(...fontesOuro.map(fonte => Number(fonte.periodo)).filter(Number.isFinite));
-        tetoOuro.appendChild(elementoFiscal('span', 'painel-card-ref',
-            `${Number.isFinite(periodoOuro) ? `${periodoOuro}º bimestre de ` : 'Exercício '}${ouroAtual.ano} · SICONFI/RREO${fontesOuro.length ? ` · ${[...new Set(fontesOuro.map(fonte => fonte.anexo))].join(', ')}` : ''}`));
-        if (ouroAnterior?.situacao === 'Dados insuficientes') {
-            const fonteAnterior = elementoFiscal('details', 'ouro-detalhes-fonte');
-            fonteAnterior.append(elementoFiscal('summary', '', 'Detalhes da fonte'),
-                elementoFiscal('p', '', `Dados completos do exercício anterior (${ouroAnterior.ano}) não foram encontrados para esta verificação.`));
-            tetoOuro.appendChild(fonteAnterior);
-        }
-    } else {
-        tetoOuro.appendChild(elementoFiscal('strong', '', 'Dado indisponível'));
-        tetoOuro.appendChild(elementoFiscal('p', 'painel-help', 'A Regra de Ouro atual não tem dados suficientes para calcular uma margem.'));
-    }
+    renderizarResumoOuro(document.getElementById('ouro-teto-dashboard'), painel.regra_ouro, painel.exercicio);
     const homeLimites = document.getElementById('home-limites');
     const limitesMeta = document.getElementById('limites-meta');
     const detalhes = document.getElementById('painel-limites');

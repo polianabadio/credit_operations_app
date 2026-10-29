@@ -8,7 +8,7 @@ from sqlalchemy import func
 from .data_access import (obter_rcl_ajustada_endividamento, obter_registros_dcl,
                           obter_registros_dtp, obter_dados_rreo_para_analise,
                           obter_servico_divida_exercicio_anterior, CONTAS_SERVICO_DIVIDA,
-                          COLUNA_LIQUIDADA, COLUNA_RESTOS)
+                          COLUNA_LIQUIDADA, COLUNA_RESTOS, obter_historico_divida_rcl)
 from .database_models import db, RREO, SincronizacaoSiconfi
 from .dcl import avaliar_dcl
 from .dtp import consolidar_dtp
@@ -79,6 +79,7 @@ def obter_painel_fiscal():
         return {'ente': 'Estado de Goiás', 'tipo_ente': 'Estado', 'exercicio': None,
                 'ultima_consulta': None, 'rcl': None, 'dcl': None, 'dtp': None,
                 'capag': capag, 'limite_mga_publicado': None,
+                'historico_divida_rcl': obter_historico_divida_rcl(ano_atual),
                 'fluxo_credito': None, 'regra_ouro': [],
                 'fontes': [{'indicador': 'CAPAG', **capag}] if capag else [],
                 'dados_disponiveis': int(capag is not None),
@@ -176,6 +177,7 @@ def obter_painel_fiscal():
         'ente': 'Estado de Goiás', 'tipo_ente': 'Estado', 'exercicio': ano,
         'ultima_consulta': consulta.isoformat() if consulta else None,
         'rcl': rcl_dto, 'dcl': dcl_dto, 'dtp': dtp_dto, 'capag': capag,
+        'historico_divida_rcl': obter_historico_divida_rcl(ano_atual),
         'caed': caed, 'limite_mga_publicado': limite_mga_publicado,
         'fluxo_credito': fluxo_credito,
         **indicadores_rgf,

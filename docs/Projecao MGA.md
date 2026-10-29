@@ -37,6 +37,8 @@ CAED, DCL, DTP, CAPAG, Regra de Ouro e motor de aprovação mantêm suas fórmul
 
 ## Dados públicos e pendências
 
+O Dashboard inicia a consulta SADIPEM após apresentar os dados fiscais. A ponte Eel compõe `margemPublica` com `obter_margem_publica`, usando a projeção fiscal e o único snapshot selecionado pelo cliente existente. Principais Limites reutiliza esse resultado. Atualizações da mesma base fiscal preservam a referência; alterações de exercício, RCL ou projeção exigem nova consulta, e respostas de painéis substituídos são descartadas. A margem pública continua sendo referência parcial segundo o PVL, sem confirmar cobertura do inventário.
+
 SADIPEM público mantém cliente, cache e paginação existentes. Snapshots contratados de diferentes PVLs podem repetir operações; não são somados como inventário. Consulta real de 06/10/2026: /pvl retornou 32 registros de Goiás/Estado. Para PVL 74460, /opc-cronograma-liberacoes e /opnc-pvl-tramitacao-deferido responderam HTTP 200 com items vazio. Snapshots históricos não comprovam liberações atuais. Quando a API não cobre o cronograma, é necessário cadastrar os documentos e confirmar cobertura.
 
 Pendências: cobertura atual das demais operações, fatores históricos/alternativos, origem do parâmetro legado do serviço da dívida e enquadramentos jurídicos especiais. O fator MGA de 2026 foi confirmado no MIP vigente.

@@ -41,11 +41,13 @@ body > nav.app-sidebar { background: #f5f8f5; border: 0; border-right: 1px solid
 body > .app-conteudo { padding: 30px 36px 48px; margin: 0 auto; max-width: 1600px; }
 .painel-fiscal, .simulacao-pagina { gap: 24px; padding: 0; }
 .painel-principal { padding: 0; border: 0; background: transparent; box-shadow: none; border-radius: 0; }
-.painel-hero { margin-bottom: 24px; gap: 20px; }
+.painel-hero { flex-wrap: wrap; margin-bottom: 24px; gap: 20px; padding: 24px; background: #fff; border: 1px solid var(--line); border-radius: 14px; }
+.painel-hero > div { flex: 1; min-width: 0; }
 .painel-hero h1, .limites-cabecalho h1, #secao-simulacao .simulacao-cabecalho h1 { font-size: clamp(26px, 2.7vw, 34px); font-weight: 650; letter-spacing: -1px; line-height: 1.2; margin: 7px 0 12px; }
 .painel-hero .painel-kicker, .painel-kicker { font-size: 10px !important; letter-spacing: .12em; font-weight: 750; }
 .painel-hero .painel-help { max-width: 720px; color: var(--muted); font-size: 14px; }
 .painel-meta { gap: 6px 16px; margin-top: 17px; }
+.painel-meta[hidden] { display: none; }
 .painel-meta span, .painel-principal .painel-meta span { padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 11px; }
 .painel-data-status, .painel-principal .painel-data-status { padding: 6px 10px; border: 1px solid #dbe7df; color: #3f6751; background: #eef5f0; font-size: 10px; font-weight: 600; white-space: nowrap; }
 .painel-indicadores { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
@@ -60,22 +62,130 @@ body > .app-conteudo { padding: 30px 36px 48px; margin: 0 auto; max-width: 1600p
 .indicador-explicacao { margin: 16px 0 10px; font-size: 11px; color: var(--muted); }
 .indicador-explicacao summary { cursor: pointer; color: #587064; }
 .indicador-explicacao p { font-size: 12px !important; }
+.capag-conjunto { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(240px, 1fr) minmax(0, 3fr); border: 1px solid #cddfd2; border-radius: 12px; overflow: hidden; background: #fff; }
+.painel-principal .capag-conjunto .capag-destaque { border: 0; border-radius: 0; box-shadow: none; min-width: 0; }
+.capag-indicador { display: flex; flex-direction: column; min-width: 0; padding-top: 8px; }
+.capag-indicador strong { font-size: clamp(25px, 2.5vw, 35px); line-height: 1.15; letter-spacing: -1px; color: #143d2f; }
+.capag-indicador .fiscal-badge { align-self: center; margin-top: 0; }
+.painel-principal .capag-conjunto .capag-destaque.capag-desfavoravel { background: #faeaea; }
+.painel-principal .capag-destaque.capag-desfavoravel strong, .capag-indicador.capag-desfavoravel strong { color: #a02d2d; }
+.painel-principal .capag-conjunto .capag-destaque.capag-sem-nota { background: #edf0ee; }
+.painel-principal .capag-conjunto .capag-selo { padding: 4px 9px; font-weight: 700; width: fit-content; border-radius: 5px; }
+.painel-principal .capag-selo.capag-favoravel { color: #246139; background: #e3f1e7; }
+.painel-principal .capag-selo.capag-desfavoravel { color: #a02d2d; background: #f9e2e2; }
+.painel-principal .capag-selo.capag-sem-nota { color: #59675f; background: #e9edeb; }
+.capag-tesouro { gap: 14px; padding: 24px; grid-template-columns: minmax(180px, 1fr) minmax(0, 3fr); border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.painel-principal .capag-tesouro .capag-destaque { position: relative; padding: 18px; border-radius: 12px; color: white; background: #318221; box-shadow: 0 2px 6px #17362b25; }
+.capag-cabecalho { grid-column: 1 / -1; margin-bottom: 8px; }
+.capag-cabecalho h2 { margin: 0 0 10px; color: #143d2f; font-size: 24px; font-weight: 650; }
+.capag-subtitulo { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.7; }
+.painel-principal .capag-tesouro .capag-destaque strong { color: inherit; font-size: 88px; text-align: right; margin: auto 0; }
+.capag-faixas { display: grid; gap: 14px; }
+.divida-historico { grid-column: 1 / -1; min-width: 0; padding: 24px; background: white; border: 1px solid var(--line); border-radius: 14px; }
+.divida-historico h2 { margin: 0 0 8px; font-size: 18px; font-weight: 650; color: #143d2f; }
+.divida-historico-legenda { display: flex; flex-wrap: wrap; gap: 12px 24px; margin: 22px 0 12px; font-size: 12px; color: #617469; }
+.divida-historico-legenda span { display: inline-flex; align-items: center; gap: 7px; }
+.divida-historico-legenda .divida-historico-dc::before, .divida-historico-legenda .divida-historico-rcl::before { content: ''; width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
+.divida-historico-dc { color: #28724c; fill: #28724c; }
+.divida-historico-rcl { color: #ae8821; fill: #c5a341; }
+.divida-historico-rolagem { max-width: 100%; overflow-x: auto; }
+.divida-historico-svg { width: 100%; min-width: 840px; display: block; }
+.divida-historico-eixo { font-size: 12px; fill: #617469; }
+.divida-historico-grade { stroke: #e6ede8; stroke-width: 1; }
+.divida-historico-valor { font-size: 11px; font-weight: 600; }
+.divida-historico-percentual { font-size: 12px; font-weight: 650; fill: #375746; }
+.divida-historico-ano { cursor: pointer; outline: none; }
+.divida-historico-selecao { fill: transparent; }
+.divida-historico-ano[aria-pressed="true"] .divida-historico-selecao, .divida-historico-ano:hover .divida-historico-selecao, .divida-historico-ano:focus-visible .divida-historico-selecao { fill: #eaf2ed; }
+.divida-historico-ano:focus-visible .divida-historico-selecao { stroke: #28724c; stroke-width: 1; }
+.divida-historico-detalhe { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px 24px; border-radius: 8px; background: #f1f6f3; padding: 16px; margin: 14px 0; }
+.divida-historico-referencia { grid-column: 1 / -1; color: #375746; font-size: 12px; }
+.divida-historico-detalhe div { display: grid; gap: 5px; }
+.divida-historico-detalhe span { color: #617469; font-size: 12px; }
+.divida-historico-detalhe div strong { color: #143d2f; font-size: 16px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.divida-historico-nota { font-size: 11px; color: #627467; line-height: 1.6; margin: 0; }
+@media (max-width: 600px) { .divida-historico-detalhe { grid-template-columns: 1fr; } }
+.capag-ranking strong { grid-column: 2 / -1; justify-self: end; }
+.capag-observacao { grid-column: 1 / -1; font-size: 12px; color: var(--muted); margin: 0; }
+.capag-faixa { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; padding: 13px; min-height: 90px; border-radius: 12px; background: #318221; color: white; box-shadow: 0 2px 6px #17362b25; }
+.capag-faixa .capag-formula { grid-column: 2 / -1; text-align: right; margin: 0; font-size: 13px; font-weight: 600; }
+.capag-faixa h3 { font-size: 13px; font-weight: 700; align-self: end; margin: 0; }
+.capag-faixa strong { color: inherit; font-size: 15px; letter-spacing: 0; align-self: end; }
+.capag-simbolo { font-size: 21px; font-weight: 750; }
+.painel-principal .capag-tesouro .capag-selo { background: transparent; color: inherit; padding: 0; margin: 0; align-self: end; }
+.painel-principal .capag-tesouro .capag-destaque .capag-selo { position: absolute; left: 18px; top: 18px; font-size: 0; }
+.painel-principal .capag-tesouro .capag-destaque .capag-selo::first-letter { font-size: 24px; }
+.capag-tesouro .capag-desfavoravel, .painel-principal .capag-tesouro .capag-destaque.capag-desfavoravel { background: #ae3030; color: white; }
+.capag-tesouro .capag-sem-nota, .painel-principal .capag-tesouro .capag-destaque.capag-sem-nota { background: #626d66; color: white; }
+.painel-principal .capag-tesouro .capag-desfavoravel strong { color: white; }
+.capag-rodape { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+.capag-rodape { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.capag-rodape p { margin: 0; }
+.painel-principal .capag-rodape .painel-card-ref { padding: 0; }
+@media (max-width: 680px) {
+    .capag-tesouro { grid-template-columns: 1fr; padding: 16px; }
+    .capag-faixa { grid-template-columns: 1fr auto; }
+    .capag-faixa .capag-formula { grid-column: 2; }
+    .capag-faixa h3 { grid-column: 1 / -1; }
+}
+@media (max-width: 1100px) {
+    .capag-conjunto { grid-template-columns: 1fr; }
+}
+@media (max-width: 680px) {
+    .capag-indicador + .capag-indicador { border-top: 1px solid var(--line); padding-top: 20px; }
+}
 .painel-principal .painel-card-ref { font-size: 10px; color: #77877e; margin-top: auto; padding-top: 14px; }
 .painel-box { border-radius: 12px; border: 1px solid var(--line); padding: 24px; box-shadow: 0 3px 8px #17362b03; }
 .painel-box h2 { font-size: 19px; font-weight: 650; letter-spacing: -.4px; margin-bottom: 8px; }
 .painel-help { color: var(--muted); font-size: 13px; line-height: 1.65; }
+.ouro-teto-dashboard { display: block; padding-top: 20px; }
+.ouro-resumo { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.4fr); gap: 24px 48px; align-items: center; }
+.ouro-margem { display: grid; gap: 12px; }
+.ouro-margem > strong { font-size: clamp(25px,2.3vw,34px); line-height: 1.2; color: #143d2f; overflow-wrap: anywhere; }
+.ouro-margem-negativa > strong { color: #b43939; }
+.ouro-formula { color: #627568; font-size: 11px; line-height: 1.5; }
+.ouro-comparacao { display: grid; gap: 20px; }
+.ouro-componente-cabecalho { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; align-items: baseline; margin-bottom: 8px; }
+.ouro-componente-cabecalho span { font-size: 12px; color: #627568; }
+.ouro-componente-cabecalho strong { font-size: 16px; font-weight: 650; color: #143d2f; }
+.ouro-componente-trilho { height: 12px; background: #eaf0ec; border-radius: 4px; overflow: hidden; }
+.ouro-componente-trilho span { display: block; height: 100%; border-radius: 4px; }
+.ouro-barra-capital { background: #28724c; }
+.ouro-barra-credito { background: #c5a341; }
+.ouro-referencia { padding-top: 18px; font-size: 10px; color: #77877e; }
+.ouro-teto-dashboard .ouro-detalhes-fonte { margin-top: 10px; font-size: 11px; }
+.ouro-teto-dashboard .ouro-detalhes-fonte p { line-height: 1.6; margin-top: 8px; }
+@media (max-width: 780px) { .ouro-resumo { grid-template-columns: 1fr; gap: 24px; } }
 .limites-resumo { gap: 18px; margin-top: 22px; }
-.limite-resumo { padding: 20px; background: #fff; border: 1px solid var(--line); border-top: 3px solid #c3d6c9; border-radius: 9px; gap: 11px; }
-.limite-resumo h3 { font-size: 14px; font-weight: 600; }
-.limite-resumo-sigla { font-size: 11px; letter-spacing: .04em; }
-.limite-resumo-linha strong { font-size: 23px; font-weight: 650; letter-spacing: -.5px; }
-.limite-resumo-linha { font-size: 11px; }
-.limite-resumo-destaque { font-size: 12px; }
-.limite-resumo .painel-progress-track { height: 5px; }
+.limite-grafico { display: flex; flex-direction: column; min-width: 0; padding: 22px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: #28724c; }
+.limite-grafico h3 { margin: 0; font-size: 15px; font-weight: 650; color: #143d2f; }
+.limite-grafico-referencia { margin: 7px 0 24px; font-size: 11px; color: #64796c; }
+.limite-grafico-principal { display: grid; gap: 7px; margin-bottom: 18px; }
+.limite-grafico-principal span { font-size: 12px; color: #627568; }
+.limite-grafico-principal strong { font-size: 32px; line-height: 1.2; color: #143d2f; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.limite-grafico[data-limite="mga"] .limite-grafico-principal strong { font-size: clamp(21px, 1.8vw, 28px); }
+.limite-comparacao { margin-top: auto; }
+.limite-comparacao-trilho { height: 12px; background: #eaf0ec; border-radius: 4px; overflow: hidden; border-right: 2px solid #899e91; }
+.limite-comparacao-barra { display: block; height: 100%; background: currentColor; }
+.limite-comparacao-escala { display: flex; justify-content: space-between; gap: 12px; margin-top: 7px; color: #627568; font-size: 11px; }
+.limite-grafico-contexto { margin: 10px 0 0; color: #627568; font-size: 11px; line-height: 1.5; }
+.limite-grafico-teto { margin: auto 0 0; padding-top: 16px; font-size: 11px; color: #627568; }
+.limite-grafico-historico { color: #82958a; }
+.limite-grafico-indisponivel { color: #8d9992; }
+.limite-grafico-indisponivel .limite-comparacao-trilho { background: repeating-linear-gradient(135deg,#edf0ee,#edf0ee 5px,#f8faf9 5px,#f8faf9 10px); }
+.limite-grafico-excedido { color: #b43939; }
+.limite-grafico-excedido .limite-grafico-principal strong { color: #b43939; }
+.limite-grafico-aviso { margin-top: 9px; font-size: 11px; color: #b43939; }
+
+
 .limites-interpretacao { font-size: 12px; padding-top: 20px; margin-top: 22px; }
 .limites-interpretacao h3 { font-size: 12px; }
-.painel-ponte { background: #eaf0ec; border: 0; border-radius: 10px; padding: 20px 24px; }
-.painel-ponte h2 { font-size: 16px; }
+.painel-ponte { flex-basis: 100%; min-width: 0; background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 16px 0 0; }
+.painel-ponte summary { cursor: pointer; color: #143d2f; }
+.painel-ponte summary h2 { display: inline; margin: 0; font-size: 15px; font-weight: 650; }
+.painel-ponte summary:focus-visible { outline: 2px solid #28724c; outline-offset: 5px; border-radius: 3px; }
+.painel-ponte-conteudo { padding-top: 12px; }
+@media (max-width: 600px) { .painel-hero > div { flex-basis: 100%; } }
 .painel-cta { border: 1px solid #cddfd3; background: #e3eee7; border-radius: 10px; padding: 24px; }
 .painel-cta h2 { font-size: 18px; font-weight: 650; }
 .simulation-button { background: var(--brand); border-radius: 7px; font-size: 13px; min-height: 44px; padding: 12px 20px; box-shadow: 0 2px 4px #064e3110; }
@@ -157,3 +267,11 @@ body > footer > div { font-size: 10px; color: #829087; }
     #modal-feedback > div { width: 96%; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+
+.divida-historico-dcl-legenda { color: #2862a0; }
+.divida-historico-dcl-legenda::before { content: ''; width: 22px; border-top: 3px solid currentColor; }
+.divida-historico-linha-dcl { fill: none; stroke: #2862a0; stroke-width: 2.5; pointer-events: none; }
+.divida-historico-ponto-dcl { fill: #2862a0; stroke: white; stroke-width: 1.5; cursor: pointer; }
+.divida-historico-ponto-dcl:focus-visible { stroke: #143d2f; stroke-width: 3; outline: none; }
+.divida-historico-rotulo-dcl { fill: #2862a0; font-size: 11px; font-weight: 700; pointer-events: none; }
+.divida-historico-limite { stroke: #8d9c93; stroke-width: 1; stroke-dasharray: 5 5; }

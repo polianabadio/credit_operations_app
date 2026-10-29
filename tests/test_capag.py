@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from src.simulador import capag
 from src.simulador.capag import extrair_nota_go, extrair_indicadores_go
-from src.simulador.database_models import CapagPublicada, CapagIndicadores
+from src.simulador.database_models import CapagPublicada, CapagIndicadores, CapagComplemento
 
 
 def test_capag_usa_classificacao_da_coluna_h_para_go():
@@ -37,7 +37,7 @@ def test_capag_le_percentuais_e_notas_da_mesma_linha():
 
 def test_capag_usa_ultima_publicacao_completa_e_persiste_referencia(monkeypatch):
     csv_completo = ('UF;Indicador 1;Nota 1;Indicador 2;Nota 2;Indicador 3;Nota 3;CAPAG\n'
-                    'GO;68,54;B;87,10;B;15,44;A;B+\n').encode('utf-8')
+                    'GO;68,54;B;87,10;B;15,44;A;B+;Aicf;Observação publicada\n').encode('utf-8')
     csv_incompleto = b'UF;1;2;3;4;5;6;7\nGO;;B;87,10;B;15,44;A;B+\n'
     pacote = {'result': {'resources': [
         {'name': 'Capag Estados 2026', 'format': 'CSV', 'url': 'https://fonte/2026'},
@@ -71,9 +71,30 @@ def test_capag_usa_ultima_publicacao_completa_e_persiste_referencia(monkeypatch)
     assert dto['ano_base'] == 2024
     assert dto['url'] == 'https://fonte/2025'
     assert dto['indicadores']['liquidez_relativa'] == {'valor': 15.44, 'nota': 'A'}
+    assert dto['ranking'] == 'Aicf'
+    assert dto['observacao'] == 'Observação publicada'
+    assert 'referencias_indicadores' not in dto
+    assert 'historico_documental' not in dto
+    complemento = sessao.get(CapagComplemento, 'GO')
+    complemento.fonte = 'https://outra-publicacao'
+    sessao.commit()
+    assert capag.obter_capag()['ranking'] is None
+    assert capag.obter_capag()['observacao'] is None
     assert sessao.query(CapagPublicada).count() == 1
     assert sessao.query(CapagIndicadores).count() == 1
     sessao.close()
+
+
+def test_layout_antigo_nao_converte_observacao_em_ranking():
+    dados = extrair_indicadores_go(b'GO;1;A;2;B;3;A;B;Observacao antiga\n')
+    assert dados['ranking'] is None
+    assert dados['observacao'] == 'Observacao antiga'
+
+
+def test_layout_moderno_preserva_ranking_ausente_sem_inventar_nota():
+    dados = extrair_indicadores_go(b'GO;1;A;2;B;3;A;B;;Observacao\n')
+    assert dados['ranking'] is None
+    assert dados['observacao'] == 'Observacao'
 
 
 def test_falha_de_rede_na_capag_nao_dispara_download_de_todo_historico(monkeypatch):

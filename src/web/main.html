@@ -45,7 +45,7 @@
                         <p class="painel-kicker">Estado de Goiás · visão geral</p>
                         <h1 id="painel-titulo">Panorama fiscal</h1>
                         <p class="painel-help">Indicadores, limites e margens para apoiar a análise de novas operações de crédito.</p>
-                        <div class="painel-meta">
+                        <div class="painel-meta" hidden>
                             <span id="painel-exercicio">Exercício: não disponível</span>
                             <span id="painel-periodo">Data-base fiscal: não disponível</span>
                             <span id="painel-fonte">Fonte: SICONFI</span>
@@ -53,19 +53,22 @@
                         </div>
                     </div>
                     <span id="painel-estado-dados" class="painel-data-status" role="status">Carregando dados fiscais…</span>
+                    <details class="painel-ponte" aria-labelledby="painel-ponte-titulo">
+                    <summary><h2 id="painel-ponte-titulo">O que isso significa para uma nova operação?</h2></summary>
+                    <div class="painel-ponte-conteudo">
+                    <p>Os indicadores deste painel mostram a posição fiscal atual do Estado, mas não determinam isoladamente um valor máximo de contratação.</p>
+                    <p>O impacto de uma nova operação depende do valor pretendido, cronograma de desembolsos, prazo, juros, carência e amortizações.</p>
+                    <p class="painel-ponte-conclusao">Por isso, a capacidade efetiva deve ser avaliada por meio da simulação da operação.</p>
+                    </div>
+                    </details>
                 </header>
                 <div id="painel-indicadores" class="painel-indicadores" aria-label="CAPAG e indicadores principais"></div>
             </section>
 
             <section class="painel-box" aria-labelledby="home-limites-titulo">
-                <p class="painel-kicker">Posição fiscal atual</p><h2 id="home-limites-titulo">Principais limites</h2>
-                <p class="painel-help">Os limites abaixo representam restrições diferentes e precisam ser atendidos simultaneamente. Nenhum deles, isoladamente, representa o valor máximo que pode ser contratado.</p>
+                <p class="painel-kicker">Posição fiscal atual</p><h2 id="home-limites-titulo">Limites em resumo</h2>
+                <p class="painel-help">Margem para operações de crédito e indicadores em relação à RCL.</p>
                 <div id="home-limites" class="limites-resumo"></div>
-                <div class="limites-interpretacao">
-                    <h3>Como interpretar estes limites</h3>
-                    <ul id="limites-interpretacao-itens"></ul>
-                    <p>Uma nova operação deve respeitar simultaneamente esses limites.</p>
-                </div>
                 <button id="btn-ver-limites" type="button" class="jornada-link">Ver detalhes dos limites →</button>
             </section>
 
@@ -75,12 +78,7 @@
                 <div id="ouro-teto-dashboard" class="ouro-teto-dashboard"></div>
             </section>
 
-            <section class="painel-ponte" aria-labelledby="painel-ponte-titulo">
-                <h2 id="painel-ponte-titulo">O que isso significa para uma nova operação?</h2>
-                <p>Os indicadores acima mostram a posição fiscal atual do Estado, mas não determinam isoladamente um valor máximo de contratação.</p>
-                <p>O impacto de uma nova operação depende do valor pretendido, cronograma de desembolsos, prazo, juros, carência e amortizações.</p>
-                <p class="painel-ponte-conclusao">Por isso, a capacidade efetiva deve ser avaliada por meio da simulação da operação.</p>
-            </section>
+
 
             <div id="painel-alertas" class="painel-alertas" role="status"></div>
             <div class="painel-cta"><div><h2>Simule uma nova operação</h2><p>Informe o valor pretendido, prazo, juros, carência, amortizações e desembolsos para verificar o impacto da operação sobre os limites fiscais.</p></div><button id="btn-nova-operacao" type="button" class="simulation-button">Simular nova operação</button></div>

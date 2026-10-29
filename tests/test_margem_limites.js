@@ -3,22 +3,25 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 class Elemento {
-    constructor(tag) { this.tag = tag; this.children = []; this.textContent = ''; this.style = {}; }
+    constructor(tag) { this.tag = tag; this.children = []; this.textContent = ''; this.style = {}; this.dataset = {}; this.classList = {add() {}}; }
     append(...nos) { this.children.push(...nos); }
     appendChild(no) { this.children.push(no); return no; }
     setAttribute() {}
     texto() { return [this.textContent, ...this.children.map(no => no.texto())].join(' '); }
 }
-const ctx = vm.createContext({document: {createElement: tag => new Elemento(tag)},
+const ctx = vm.createContext({document: {createElement: tag => new Elemento(tag), createElementNS: (_,tag) => new Elemento(tag)},
     formatarMoeda: v => `R$ ${v}`, formatarPercentual: v => `${v}%`});
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/web/js/fiscal-dashboard.js'), 'utf8'), ctx);
 const config = vm.runInContext('LIMITES_PRINCIPAIS[0]', ctx);
 const dado = {limite: 16, fluxo: {ano: 2026, positionOnly: true, parameterValidated: true,
     rows: [{ano: 2026, dadosCompletos: true, margemEstimada: 60, scheduledDisbursements: 100, tetoAnual: 160, rclProjetada: 1000}]}};
 let card = ctx.criarResumoLimite(config, dado).texto();
-assert(card.includes('Margem disponível no exercício R$ 60'));
+assert(card.includes('Margem no exercício R$ 60'));
 assert(!card.includes('Maior comprometimento projetado'));
 assert(!card.includes('MGA/RCL'));
+assert(!card.includes('62.5%'));
+assert(!card.includes('do limite utilizado'));
+assert(!card.includes('Saldo do teto anual após'));
 let detalhe = ctx.criarDetalheMargemCredito(dado).texto();
 assert(detalhe.includes('Liberações existentes incluídas'));
 assert(!detalhe.includes('Operação pleiteada'));
@@ -29,9 +32,13 @@ for (const alteracao of [{positionOnly:false}, {parameterValidated:false}]) {
     assert(ctx.criarResumoLimite(config, parcial).texto().includes('Não determinada'));
 }
 dado.fluxo.rows[0].margemEstimada = 0;
+dado.fluxo.rows[0].scheduledDisbursements = 160;
 assert(ctx.criarResumoLimite(config, dado).texto().includes('R$ 0'));
 dado.fluxo.rows[0].margemEstimada = -20;
+dado.fluxo.rows[0].scheduledDisbursements = 180;
 assert(ctx.criarResumoLimite(config, dado).texto().includes('R$ -20'));
+assert(!ctx.criarResumoLimite(config, dado).texto().includes('112.5%'));
+assert(ctx.criarResumoLimite(config, dado).texto().includes('Saldo negativo'));
 dado.fluxo.rows[0].dadosCompletos = false;
 assert.equal(ctx.linhaMargemCredito(dado), null);
 assert(ctx.criarDetalheMargemCredito(dado).texto().includes('Não determinada'));

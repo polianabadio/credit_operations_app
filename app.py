@@ -22,6 +22,8 @@ def status_atualizacao_siconfi():
 from src.simulador.rule_engine import analisar_operacao
 from src.simulador.parametros_simulacao import obter_fator_projecao, salvar_fator_projecao, obter_taxa_salva
 from src.simulador.painel_fiscal import obter_painel_fiscal
+from src.simulador.margem_publica import obter_margem_publica
+from src.simulador.mga_projection import obter_projecao
 from src.simulador.sadipem import obter_comprometimento_goias, simular_fluxo_goias
 from src.simulador.data_updater import atualizar_operacoes_rreo, atualizar_operacoes_rgf
 from src.simulador.database_models import db, RREO
@@ -151,7 +153,10 @@ def obter_fator_projecao_py():
 @eel.expose
 def obter_painel_fiscal_py():
     try:
-        return {'status': 'sucesso', 'painel': obter_painel_fiscal()}
+        painel = obter_painel_fiscal()
+        if painel.get('exercicio') is not None:
+            painel['fluxo_credito'] = obter_projecao(painel)
+        return {'status': 'sucesso', 'painel': painel}
     except Exception as exc:
         log.error('Erro ao obter painel fiscal.', details=str(exc), modulo='app.py')
         return {'status': 'erro', 'mensagem': 'Não foi possível carregar o painel fiscal.'}
@@ -159,13 +164,16 @@ def obter_painel_fiscal_py():
 
 @eel.expose
 def obter_comprometimento_sadipem_py():
-    """Consulta sob demanda ao abrir Principais Limites; o cliente HTTP mantém cache."""
+    """Compõe a referência pública do Dashboard; o cliente HTTP mantém cache."""
     painel = obter_painel_fiscal()
     ano = painel.get('exercicio')
     if ano is None:
         return {'status': 'erro', 'mensagem': 'Exercício fiscal não disponível.'}
+    painel['fluxo_credito'] = obter_projecao(painel)
     rcl = painel.get('rcl') or {}
-    return {'status': 'sucesso', 'sadipem': obter_comprometimento_goias(ano, rcl.get('valor'))}
+    sadipem = obter_comprometimento_goias(ano, rcl.get('valor'))
+    margem = obter_margem_publica(painel.get('fluxo_credito') or {}, sadipem)
+    return {'status': 'sucesso', 'sadipem': sadipem, 'margemPublica': margem}
 
 
 def _calcular_operacao_compartilhada(entrada):

@@ -1,0 +1,36 @@
+{
+  "referencias": [
+    {
+      "ente": 52,
+      "ano_referencia": 2024,
+      "tipo": "referencia_estadual",
+      "documento": "Relatório de Gestão Estratégica — Exercício 2024 — Secretaria da Economia de Goiás",
+      "pagina": 29,
+      "tabela": "Tabela 1 — Notas da CAPAG, Endividamento, Poupança Corrente e Liquidez Relativa de 2019 a 2024",
+      "fonte": "https://goias.gov.br/economia/wp-content/uploads/sites/45/2025/06/Relatorio-de-Gestao-Estrategica-Exercicio-2024-ECONOMIA.pdf",
+      "sha256_documento": "78a7be331e5ce586df5043af302c398477d1be00608431ccd28d5962275b300e",
+      "consultado_em": "2026-10-29",
+      "indicadores": {
+        "endividamento": "68.99",
+        "poupanca_corrente": "87.10",
+        "liquidez_relativa": "15.44"
+      },
+      "observacao": "Transcrição conferida visualmente na coluna 2024 do relatório estadual. Referência independente; não é memória dos indicadores da nota final C revisada da STN. A coluna é a referência anual apresentada pelo Estado, não o ano-base do CSV STN."
+    }
+  ],
+  "notas_documentais": [
+    {
+      "ente": 52,
+      "tipo": "serie_retrospectiva",
+      "documento": "Relatório Fiscal do Tesouro Nacional 2017",
+      "ano_documento": 2017,
+      "pagina": 74,
+      "tabela": "Tabela 23 — Histórico da Classificação CAPAG dos Estados",
+      "fonte": "https://cdn.tesouro.gov.br/sistemas-internos/apex/producao/sistemas/thot/arquivos/publicacoes/28536_996196/Relatorio%20Fiscal%20do%20Tesouro%20Nacional%20de%202017.pdf",
+      "sha256_documento": "e12e9c722f02918a1f3966c063bb6b99b971919277734937ff3b00574ea30444",
+      "consultado_em": "2026-10-29",
+      "notas": {"2012": "B", "2013": "B", "2014": "B", "2015": "B", "2016": "C", "2017": "C"},
+      "observacao": "Série retrospectiva da tabela 23, reproduzida do Boletim de Finanças dos Entes Subnacionais de 2016, publicado em dezembro de 2017. O relatório contextualiza a tabela como simulação conforme a metodologia então nova. Os anos da série não são anos de publicação de CSV nem se afirma avaliação individual de contratação em cada ano."
+    }
+  ]
+}
