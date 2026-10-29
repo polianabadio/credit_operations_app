@@ -11,3 +11,5 @@ database
 /Operations_Credit_v2.1.0.spec
 /dist/Operations_Credit_v2.1.0.exe
 /installer/output/
+/instance/confirmacao_caed.json
+/.ui-preview/

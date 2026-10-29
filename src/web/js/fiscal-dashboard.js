@@ -349,8 +349,7 @@ function renderizarVisaoFiscal(painel) {
         elementoFiscal('strong', '', capag ? `Nota ${capag.valor}` : 'Dado indisponível'),
         elementoFiscal('span', `fiscal-badge ${capagCompativel ? 'confortavel' : 'indisponivel'}`,
             capagCompativel ? 'Classificação elegível para análise de garantia da União' : 'Classificação não confirmada para análise de garantia da União'),
-        elementoFiscal('p', '', 'A CAPAG resume a capacidade de pagamento do ente e é utilizada, entre outros requisitos, na análise de operações com garantia da União.'),
-        elementoFiscal('p', 'capag-aviso', 'A classificação CAPAG, isoladamente, não autoriza a contratação nem determina o valor máximo da operação.'),
+        elementoFiscal('p', 'capag-aviso', 'Indicador publicado. Não representa autorização de contratação.'),
         elementoFiscal('span', 'painel-card-ref', capag ? referenciaFiscal(capag) : 'Sem publicação integrada'));
     indicadores.appendChild(nota);
     for (const [chave, nome, descricao, complemento] of [
@@ -367,8 +366,10 @@ function renderizarVisaoFiscal(painel) {
             elementoFiscal('h2', '', nome),
             elementoFiscal('strong', '', publicado?.valor == null ? 'Dado indisponível' : formatarPercentual(publicado.valor)));
         if (publicado?.nota) card.appendChild(elementoFiscal('span', 'fiscal-badge', `Nota ${publicado.nota}`));
-        card.appendChild(elementoFiscal('p', '', descricao));
-        if (complemento) card.appendChild(elementoFiscal('p', 'painel-card-extra', complemento));
+        const explicacao = elementoFiscal('details', 'indicador-explicacao');
+        explicacao.append(elementoFiscal('summary', '', 'Sobre o indicador'), elementoFiscal('p', '', descricao));
+        if (complemento) explicacao.appendChild(elementoFiscal('p', '', complemento));
+        card.appendChild(explicacao);
         card.appendChild(elementoFiscal('span', 'painel-card-ref', publicado
                 ? `${capag.ano_base ? `Ano-base ${capag.ano_base} · ` : ''}Publicação de ${capag.ano} · ${capag.origem}`
                 : 'Aguardando publicação CAPAG completa na atualização de dados'));

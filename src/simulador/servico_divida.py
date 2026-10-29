@@ -1,6 +1,7 @@
 """Memória única do CAED: RSF 43/2001, art. 7º, II e § 4º."""
 from datetime import date
 from decimal import Decimal, InvalidOperation, localcontext
+from .mensagens import resumir_pendencias_caed
 
 LIMITE = Decimal('0.115')
 
@@ -113,13 +114,14 @@ def avaliar_caed(ano, entrada, referencia, fator, motivos_iniciais=None):
              'memoria_exata': {'entrada': memoria_decimal(entrada), 'rcl': memoria_decimal(referencia),
                                'fator': memoria_decimal(fator), 'linhas': [], 'comparador': '<=',
                                'limite_percentual': str(LIMITE), 'precisao_decimal': 50}}
+    dados['referencia_publica_demais'] = memoria_decimal(entrada.get('referencia_publica_demais')) if isinstance(entrada, dict) else None
     def motivo(codigo, mensagem, campo=None):
         motivos.append({'codigo': codigo, 'mensagem': mensagem, 'campo': campo})
     def resultado(aprovado=None):
         estado = 'INCONCLUSIVO' if aprovado is None else 'ATENDE' if aprovado else 'NAO_ATENDE'
         return {'tipo': 'servico_divida', 'nome': 'Serviço da Dívida — CAED',
                 'estado': estado, 'status': estado, 'aprovado': aprovado,
-                'descricao': ('; '.join(m['mensagem'] for m in motivos) if aprovado is None else
+                'descricao': (resumir_pendencias_caed(motivos) if aprovado is None else
                     'A média mais benéfica atende ao limite de 11,5%.' if aprovado else
                     'As médias aplicáveis excedem o limite de 11,5%.'), 'dados_calculados': dados}
     if not isinstance(entrada, dict):
@@ -131,7 +133,7 @@ def avaliar_caed(ano, entrada, referencia, fator, motivos_iniciais=None):
     except (TypeError, ValueError):
         motivo('DATA_REFERENCIA_INVALIDA', 'Informe uma data de referência no exercício selecionado.')
     if any(k in entrada for k in ('hipotese_1', 'hipotese_2', 'fator', 'fator_atualizacao')):
-        motivo('CONTRATO_LEGADO', 'Use o cronograma único; hipóteses independentes e fator legado não são aceitos.')
+        motivo('CONTRATO_LEGADO', 'Os pagamentos estão em um formato antigo. Preencha novamente o cronograma em Ver Detalhes do Serviço da Dívida.')
         return resultado()
     fim, linhas = entrada.get('ano_fim_contrato'), entrada.get('linhas')
     if (not isinstance(fim, int) or isinstance(fim, bool) or not ano <= fim <= ano + 50
@@ -152,11 +154,14 @@ def avaliar_caed(ano, entrada, referencia, fator, motivos_iniciais=None):
         except (ValueError, TypeError):
             pass
     if not cobertura_valida:
-        motivo('COBERTURA_DEMAIS_AUSENTE', 'Confirme a cobertura das demais operações com fonte e data; ausência não é zero.')
+        motivo('COBERTURA_DEMAIS_AUSENTE',
+               'Pagamentos obtidos do PVL público; cobertura integral das demais dívidas não confirmada.'
+               if dados['referencia_publica_demais'] and dados['referencia_publica_demais'].get('pagamentos')
+               else 'Confirme a cobertura das demais operações com fonte e data; ausência não é zero.')
     if not referencia:
         motivo('RCL_AUSENTE', 'RCL ajustada para endividamento não disponível.')
     if not fator:
-        motivo('FATOR_NAO_VALIDADO', 'Fator sem fonte/vigência validada para a data de referência.')
+        motivo('FATOR_NAO_VALIDADO', 'Não há uma taxa de projeção com referência válida para esta data. Confira a data da análise e a taxa informada.')
     rcls = {}
     if referencia and fator:
         try:
@@ -186,7 +191,10 @@ def avaliar_caed(ano, entrada, referencia, fator, motivos_iniciais=None):
                            'meses_projecao': (12 * (exercicio - referencia['exercicio']) + 12 - 2 * referencia['periodo']) if rcl is not None else None})
     dados['memoria_exata']['linhas'] = memoria_decimal(exatas)
     dados['linhas'] = [{k: float(v) if isinstance(v, Decimal) else v for k, v in l.items()} for l in exatas]
-    if motivos:
+    referencia_publica = dados['referencia_publica_demais']
+    apenas_cobertura_publica = bool(motivos and referencia_publica and referencia_publica.get('pagamentos')) and all(
+        m['codigo'] == 'COBERTURA_DEMAIS_AUSENTE' for m in motivos)
+    if motivos and not apenas_cobertura_publica:
         return resultado()
     try:
         alternativas = avaliar_alternativas(exatas)
@@ -196,4 +204,7 @@ def avaliar_caed(ano, entrada, referencia, fator, motivos_iniciais=None):
     dados['memoria_exata']['alternativas'] = memoria_decimal(alternativas)
     dados.update({k: float(v * 100) if isinstance(v, Decimal) else v
                   for k, v in alternativas.items() if k != 'aprovado'})
+    if apenas_cobertura_publica:
+        dados['resultado_numerico'] = 'ATENDE' if alternativas['aprovado'] else 'NAO_ATENDE'
+        return resultado()
     return resultado(alternativas['aprovado'])

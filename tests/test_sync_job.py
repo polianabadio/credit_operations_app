@@ -42,7 +42,7 @@ def test_falha_encerra_estado_de_carregamento(monkeypatch):
     job._executar()
     assert job.status_atualizacao()['running'] is False
     assert job.status_atualizacao()['falhas'] == 1
-    assert job.status_atualizacao()['detalhes_falhas'][0]['motivo'] == 'API indisponível'
+    assert job.status_atualizacao()['detalhes_falhas'][0]['motivo'] == 'A atualização foi interrompida. Tente novamente mais tarde.'
 
 
 def test_falhas_por_periodo_aparecem_no_status(monkeypatch):

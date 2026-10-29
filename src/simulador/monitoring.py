@@ -44,7 +44,7 @@ def check_database_connection():
         log.error("Monitoramento: Erro inesperado ao verificar o banco de dados.", details=str(e))
         return {
             "status": "Erro",
-            "mensagem": str(e)
+            "mensagem": "Não foi possível verificar o acesso aos dados. Confira as configurações do banco e tente novamente."
         }
 
 def get_resource_usage():

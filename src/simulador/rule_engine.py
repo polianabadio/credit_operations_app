@@ -392,7 +392,7 @@ def analisar_operacao(ano, valor_requisitado=0.0, servico_input=None):
         }
     except Exception as e:
         log.critical(f"Erro fatal na análise da operação: {e}")
-        return {"status": f"Erro: {e}", "regras_cumpridas": [], "regras_violadas": []}
+        return {"status": "Não foi possível concluir a análise. Tente novamente; se continuar, peça ajuda à equipe responsável pelo aplicativo.", "regras_cumpridas": [], "regras_violadas": []}
 
 # Configuração para rodar o script diretamente
 

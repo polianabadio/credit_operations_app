@@ -20,12 +20,13 @@ def status_atualizacao_siconfi():
 
 # Módulos da nossa arquitetura
 from src.simulador.rule_engine import analisar_operacao
-from src.simulador.parametros_simulacao import obter_fator_projecao, salvar_fator_projecao
+from src.simulador.parametros_simulacao import obter_fator_projecao, salvar_fator_projecao, obter_taxa_salva
 from src.simulador.painel_fiscal import obter_painel_fiscal
 from src.simulador.sadipem import obter_comprometimento_goias, simular_fluxo_goias
 from src.simulador.data_updater import atualizar_operacoes_rreo, atualizar_operacoes_rgf
 from src.simulador.database_models import db, RREO
 from src.simulador.logger import log
+from src.simulador.mensagens import mensagem_erro
 from src.simulador.monitoring import get_system_status
 
 from sqlalchemy import create_engine
@@ -65,7 +66,7 @@ def save_db_config(config_data: dict):
         return {'status': 'sucesso', 'mensagem': 'Configuração salva. Reinicie a aplicação para aplicá-la.'}
     except Exception as e:
         log.error("Falha ao salvar a configuração do banco de dados.", details=str(e))
-        return {'status': 'erro', 'mensagem': str(e)}
+        return {'status': 'erro', 'mensagem': mensagem_erro(e)}
 
 @eel.expose
 def test_db_connection(config_data: dict):
@@ -94,7 +95,7 @@ def test_db_connection(config_data: dict):
         else:
             raise ValueError(f"Tipo de banco de dados '{db_type}' desconhecido para teste.")
         
-        log.info(f"URL de teste construída: {test_url}", modulo="app.py")
+        log.info("Configuração de teste preparada.", modulo="app.py")
         engine = create_engine(test_url)
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
@@ -106,7 +107,7 @@ def test_db_connection(config_data: dict):
         return {'status': 'erro', 'mensagem': f'Falha na conexão: Verifique as credenciais, host, porta e nome do banco.'}
     except Exception as e:
         log.error("Teste de conexão falhou (Exception).", details=str(e))
-        return {'status': 'erro', 'mensagem': f'Um erro inesperado ocorreu: {e}'}
+        return {'status': 'erro', 'mensagem': 'Não foi possível acessar o banco de dados. Confira as configurações de acesso e tente novamente.'}
 
 # ========== FUNÇÃO DE MONITORAMENTO EXPOSTA ==========
 
@@ -140,11 +141,11 @@ def obter_dados_iniciais():
         }
     except Exception as e:
         log.error(f"Erro ao obter dados iniciais: {e}")
-        return {"status": "erro", "mensagem": str(e), "anos_disponiveis": []}
+        return {"status": "erro", "mensagem": mensagem_erro(e), "anos_disponiveis": []}
 
 @eel.expose
 def obter_fator_projecao_py():
-    return obter_fator_projecao()
+    return str(obter_taxa_salva())
 
 
 @eel.expose
@@ -171,12 +172,21 @@ def _calcular_operacao_compartilhada(entrada):
     from src.simulador.operacao import calcular_operacao
     from src.simulador.fluxo_tlp import montar_periodos
     from src.simulador.indices_publicos import obter_serie_ipca
-    from src.simulador.data_access import obter_rcl_ajustada_endividamento
-    from datetime import datetime
+    from src.simulador.data_access import obter_rcl_caed
+    from datetime import datetime, date
     periodos = montar_periodos(entrada['data_liberacao'], entrada['prazo_meses'], entrada['carencia_meses'])
-    rcl = obter_rcl_ajustada_endividamento(int(entrada['ano']))
+    referencia = entrada.get('data_referencia') or date.today().isoformat()
+    rcl = obter_rcl_caed(int(entrada['ano']), referencia)
+    fator = obter_fator_projecao(referencia)
     dados = calcular_operacao(entrada, serie_ipca=obter_serie_ipca(periodos[0]['competencia_ipca']),
-                              rcl_base=rcl['valor'] if rcl else None)
+                              rcl_base=rcl['valor'] if rcl else None, referencia_rcl=rcl, fator_projecao=fator)
+    dados['servico_input']['data_referencia'] = referencia
+    from src.simulador.caed_publico import obter_pagamentos_caed, integrar_pagamentos_caed, obter_confirmacao
+    pagamentos = obter_pagamentos_caed(int(entrada['ano']), int(entrada['fim']), referencia)
+    dados['servico_input'] = integrar_pagamentos_caed(dados['servico_input'], pagamentos)
+    confirmacao = obter_confirmacao(pagamentos, int(entrada['ano']), int(entrada['fim']))
+    if confirmacao:
+        dados['servico_input']['cobertura_demais'] = confirmacao
     dados['fluxo']['fonte_ipca'] = 'IBGE / Banco Central, série 433'
     dados['fluxo']['consultado_em'] = datetime.now().isoformat(timespec='seconds')
     return dados
@@ -190,7 +200,8 @@ def avaliar_operacao_completa_py(entrada):
         return {'status': 'sucesso', 'resultado': dados}
     except Exception as exc:
         log.error('Erro no cálculo compartilhado da operação.', details=str(exc))
-        return {'status': 'erro', 'mensagem': str(exc)}
+        log.error('Ação não concluída.', details=str(exc), modulo='app.py')
+        return {'status': 'erro', 'mensagem': mensagem_erro(exc)}
 
 
 @eel.expose
@@ -204,7 +215,8 @@ def simular_fluxo_credito_py(linhas):
 
         return {'status': 'sucesso', 'exercicios': simular_fluxo_goias(linhas)}
     except (ValueError, KeyError, TypeError) as exc:
-        return {'status': 'erro', 'mensagem': str(exc)}
+        log.error('Ação não concluída.', details=str(exc), modulo='app.py')
+        return {'status': 'erro', 'mensagem': mensagem_erro(exc)}
 
 
 @eel.expose
@@ -212,7 +224,8 @@ def salvar_fator_projecao_py(valor):
     try:
         return {'status': 'sucesso', 'fator': salvar_fator_projecao(valor)}
     except ValueError as exc:
-        return {'status': 'erro', 'mensagem': str(exc)}
+        log.error('Ação não concluída.', details=str(exc), modulo='app.py')
+        return {'status': 'erro', 'mensagem': mensagem_erro(exc)}
 
 
 @eel.expose
@@ -221,7 +234,8 @@ def consultar_ipca_py(mes):
     try:
         return {'status': 'sucesso', 'resultado': consultar_ipca(mes)}
     except ValueError as exc:
-        return {'status': 'erro', 'mensagem': str(exc)}
+        log.error('Ação não concluída.', details=str(exc), modulo='app.py')
+        return {'status': 'erro', 'mensagem': mensagem_erro(exc)}
     except Exception:
         return {'status': 'erro', 'mensagem': 'Não foi possível consultar o Banco Central agora. Tente novamente ou informe o índice e confira sua fonte.'}
 
@@ -246,7 +260,8 @@ def calcular_fluxo_tlp_py(entrada):
         resultado['consultado_em'] = datetime.now().isoformat(timespec='seconds')
         return {'status': 'sucesso', 'resultado': resultado}
     except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
-        return {'status': 'erro', 'mensagem': str(exc)}
+        log.error('Ação não concluída.', details=str(exc), modulo='app.py')
+        return {'status': 'erro', 'mensagem': mensagem_erro(exc)}
     except Exception:
         return {'status': 'erro', 'mensagem': 'Não foi possível obter a inflação publicada. Tente novamente. O cálculo não utilizou índices iguais a zero para preencher dados ausentes.'}
 
@@ -258,7 +273,8 @@ def avaliar_encargos_tlp_py(entrada):
     try:
         return {'status': 'sucesso', 'resultado': calcular_encargos(**entrada)}
     except (ValueError, TypeError, ArithmeticError) as exc:
-        return {'status': 'erro', 'mensagem': str(exc)}
+        log.error('Ação não concluída.', details=str(exc), modulo='app.py')
+        return {'status': 'erro', 'mensagem': mensagem_erro(exc)}
 
 
 @eel.expose
@@ -274,7 +290,7 @@ def analisar_operacao_py(ano: int, valor_requisitado: float, servico_input=None)
         return resultado
     except Exception as e:
         log.error("Erro ao executar 'analisar_operacao'", details=str(e), modulo="app.py", funcao="analisar_operacao_py", traceback=True)
-        return {"status": "erro", "mensagem": f"Ocorreu um erro crítico no backend: {e}"}
+        return {"status": "erro", "mensagem": 'Não foi possível concluir a análise. Tente novamente. Se continuar, peça ajuda à equipe responsável pelo aplicativo.'}
 
 @eel.expose
 def atualizar_rreo_py(status='all'):
@@ -289,7 +305,7 @@ def atualizar_rreo_py(status='all'):
         return resultado
     except Exception as e:
         log.error(f"Erro na atualização RREO:", details=str(e), modulo="app.py", funcao="atualizar_rreo_py", traceback=True)
-        return {"message": f"Erro: {str(e)}", "status": "error"}
+        return {"message": 'Não foi possível atualizar os dados agora. Verifique a conexão e tente novamente mais tarde.', "status": "error"}
 
 @eel.expose
 def atualizar_rgf_py(status='all'):
@@ -304,7 +320,7 @@ def atualizar_rgf_py(status='all'):
         return resultado
     except Exception as e:
         log.error(f"Erro na atualização RGF:", details=str(e), modulo="app.py", funcao="atualizar_rgf_py", traceback=True)
-        return {"message": f"Erro: {str(e)}", "status": "error"}
+        return {"message": 'Não foi possível atualizar os dados agora. Verifique a conexão e tente novamente mais tarde.', "status": "error"}
 
 @eel.expose
 def obter_info_app():

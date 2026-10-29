@@ -44,11 +44,12 @@ function mostrarSecao(nomeSecao) {
     for (const id of ['secao-painel', 'secao-limites', 'secao-simulacao', 'secao-configuracoes']) {
         document.getElementById(id).classList.add('hidden');
     }
+    const tituloPagina = document.getElementById('pagina-atual');
+    if (tituloPagina) tituloPagina.textContent = {'secao-painel': 'Dashboard', 'secao-limites': 'Principais Limites', 'secao-simulacao': 'Simulação', 'secao-configuracoes': 'Configurações'}[nomeSecao] || 'Operações de Crédito';
     const secaoParaMostrar = document.getElementById(nomeSecao);
     if (secaoParaMostrar) secaoParaMostrar.classList.remove('hidden');
     const navegacao = {'secao-painel': 'nav-painel', 'secao-limites': 'nav-limites',
-        'secao-simulacao': 'nav-simulacao',
-        'secao-configuracoes': 'nav-configuracoes'};
+        'secao-simulacao': 'nav-simulacao'};
     for (const id of Object.values(navegacao)) {
         const botao = document.getElementById(id);
         botao.classList.toggle('ativo', id === navegacao[nomeSecao]);
@@ -73,10 +74,10 @@ function configurarEventListeners() {
             campoValorRequisitado.value = lerValorRequisitado(campoValorRequisitado.value).formatado;
             campoValorRequisitado.setCustomValidity('');
         } catch (error) {
-            campoValorRequisitado.setCustomValidity(error.message);
+            campoValorRequisitado.setCustomValidity(mensagemErroAmigavel(error));
             campoValorRequisitado.setAttribute('aria-invalid', 'true');
             const erro = document.getElementById('valor-erro');
-            erro.textContent = error.message;
+            erro.textContent = mensagemErroAmigavel(error);
             erro.hidden = false;
         }
     });
@@ -132,10 +133,7 @@ function configurarEventListeners() {
     });
 
 
-    document.getElementById('nav-configuracoes').addEventListener('click', (e) => {
-        e.preventDefault();
-        mostrarSecao('secao-configuracoes');
-    });
+
 
     // Inicializa a lógica do modal de configuração
     initializeDbConfigComponent();
@@ -157,7 +155,7 @@ async function executarFluxoCredito(event) {
     let linhas;
     let versao, versaoEspecifica;
     try { linhas = obterEntradaFluxoCompartilhada(); versao = revisaoOperacao; versaoEspecifica = revisaoFluxo; }
-    catch (erro) { destino.textContent = erro.message; return; }
+    catch (erro) { destino.textContent = mensagemErroAmigavel(erro); return; }
     const botaoFluxo = document.querySelector('#form-fluxo-credito button[type="submit"]');
     if (botaoFluxo.disabled) return;
     botaoFluxo.disabled = true;
@@ -194,8 +192,8 @@ async function executarFluxoCredito(event) {
         }
     } catch (error) {
         if (versao !== revisaoOperacao || versaoEspecifica !== revisaoFluxo) return;
-        registrarAvaliacaoComplementar('fluxo', 'Sem informação', error.message);
-        destino.textContent = `Não foi possível calcular o cenário: ${error.message}`;
+        registrarAvaliacaoComplementar('fluxo', 'Sem informação', mensagemErroAmigavel(error));
+        destino.textContent = `Não foi possível calcular o cenário: ${mensagemErroAmigavel(error)}`;
     } finally {
         botaoFluxo.disabled = false;
         botaoFluxo.removeAttribute('aria-busy');
@@ -297,7 +295,7 @@ async function carregarDadosIniciais() {
         }
     } catch (error) {
         console.error('Erro ao carregar dados iniciais:', error);
-        mostrarMensagem('Falha ao carregar dados iniciais do servidor.', 'error');
+        mostrarMensagem('Não foi possível carregar os exercícios disponíveis. Confira o acesso ao banco de dados nas Configurações e tente novamente.', 'error');
     }
 }
 
@@ -319,7 +317,7 @@ async function executarSimulacao(usarProjecaoServico = false) {
         const campo = document.getElementById('valor-requisitado');
         const erro = document.getElementById('valor-erro');
         campo.setAttribute('aria-invalid', 'true');
-        erro.textContent = error.message;
+        erro.textContent = mensagemErroAmigavel(error);
         erro.hidden = false;
         campo.focus();
         return;
@@ -388,7 +386,7 @@ async function executarSimulacao(usarProjecaoServico = false) {
     } catch (error) {
         console.error('Erro ao executar simulação:', error);
         document.getElementById('operacao-aviso').textContent = '';
-        document.getElementById('operacao-erro').textContent = error.message;
+        document.getElementById('operacao-erro').textContent = mensagemErroAmigavel(error);
         document.getElementById('operacao-erro').hidden = false;
     } finally {
         mostrarCarregamento(false, botaoCarregamento);
@@ -544,7 +542,7 @@ function colarPlanilhaServico(event, container, linhaInicial, colunaInicial) {
             campo.classList.remove('border-red-500');
         }
     } catch (error) {
-        mostrarMensagem(error.message, 'error');
+        mostrarMensagem(mensagemErroAmigavel(error), 'error');
     }
 }
 
@@ -574,7 +572,22 @@ function popularSeletorDeAnos(anos) {
     });
 }
 
+function resumoLimiteCaed(regra) {
+    const dados = regra.dados_calculados || {};
+    const numerico = dados.resultado_numerico || (regra.aprovado === true ? 'ATENDE' : regra.aprovado === false ? 'NAO_ATENDE' : null);
+    const atende = numerico === 'ATENDE';
+    const parcial = numerico && regra.aprovado == null;
+    return {
+        rotulo: numerico ? (atende ? 'Limite atendido' : 'Limite excedido') : 'Cálculo incompleto',
+        classe: numerico ? (atende ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800') : 'bg-gray-100 text-gray-800',
+        descricao: numerico
+            ? `Média utilizada: ${formatarPercentual(dados.percentual_determinante)} · Limite: 11,5%${parcial ? ' · Dados do PVL consultado' : ''}`
+            : regra.descricao || 'Faltam dados para calcular a média.'
+    };
+}
+
 function textoStatusLimite(regra) {
+    if (regra.tipo === 'servico_divida') return resumoLimiteCaed(regra).rotulo;
     if (regra.status === 'Sem informação' || regra.aprovado === null) return 'Sem informação';
     if (regra.aprovado === true || regra.status === 'Cumprida') return 'Limite atendido';
     if (regra.aprovado === false || regra.status === 'Violada') return 'Limite excedido';
@@ -620,6 +633,13 @@ function renderizarResultados(resultado) {
             </td>
         `;
 
+        if (regra.tipo === 'servico_divida') {
+            const resumo = resumoLimiteCaed(regra);
+            const badge = tr.children[1].querySelector('span');
+            badge.textContent = resumo.rotulo;
+            badge.className = `px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${resumo.classe}`;
+            tr.children[2].textContent = resumo.descricao;
+        }
         if (regra.tipo === 'dtp') {
             tr.children[1].querySelector('span').textContent = textoStatusLimite(regra);
             tr.children[2].textContent = `${formatarPercentual(regra.dados_calculados.percentual)} — ${regra.descricao}`;
@@ -914,6 +934,11 @@ function renderizarDtp(regra, container) {
 function renderizarServicoDivida(regra, container) {
     const dados = regra.dados_calculados || {};
     const historico = dados.historico;
+    const memoriaHistorica = dados.memoria_exata?.historico;
+    const rclHistorica = memoriaHistorica?.rcl;
+    const despesasHistoricas = memoriaHistorica?.despesas;
+    const rclProjecao = dados.rcl_fonte;
+    const fatorProjecao = dados.fator_atualizacao;
     const resultados = document.getElementById('servico-resultados');
     resultados.replaceChildren();
     const criar = (tag, classe, texto) => {
@@ -935,15 +960,23 @@ function renderizarServicoDivida(regra, container) {
     };
     const moedaOuIndisponivel = valor => valor === null || valor === undefined ? 'Não disponível' : formatarMoeda(valor);
 
-    const etapa = secao(`1ª etapa — Exercício anterior (${dados.ano_historico})`);
+    const resumo = resumoLimiteCaed(regra);
+    const principal = secao('Resultado do limite de 11,5%');
+    principal.appendChild(criar('span', `servico-badge ${resumo.classe}`, resumo.rotulo));
+    principal.appendChild(criar('p', 'servico-stage-description', resumo.descricao));
+    principal.appendChild(criar('p', 'servico-source',
+        'Compara a menor média aplicável do serviço anual da dívida sobre a RCL projetada com 11,5%. Igualdade atende.'));
+    const etapa = criar('details', 'servico-exercicio-detalhes');
+    etapa.appendChild(criar('summary', '', `Exercício anterior (${dados.ano_historico})`));
+    container.appendChild(etapa);
     etapa.classList.add('servico-stage');
     if (historico) {
         etapa.classList.add(historico.aprovado ? 'servico-stage-ok' : 'servico-stage-failed');
         etapa.appendChild(criar('span', `servico-badge ${historico.aprovado ? 'servico-ok' : 'servico-failed'}`,
             historico.aprovado ? 'Regra atendida' : 'Regra não atendida'));
         etapa.appendChild(criar('p', 'servico-stage-description', historico.aprovado
-            ? 'O serviço da dívida ficou abaixo de 11,5% da RCL do exercício anterior.'
-            : 'O serviço da dívida ficou igual ou acima de 11,5% da RCL do exercício anterior.'));
+            ? 'O serviço da dívida ficou dentro da referência de 11,5% da RCL do exercício anterior.'
+            : 'O serviço da dívida ultrapassou a referência de 11,5% da RCL do exercício anterior.'));
         const resultado = criar('div', 'servico-result-grid');
         for (const [rotulo, valor] of [
             ['Serviço da dívida', historico.servico_divida],
@@ -955,19 +988,19 @@ function renderizarServicoDivida(regra, container) {
             resultado.appendChild(celula);
         }
         etapa.appendChild(resultado);
-        etapa.appendChild(criar('p', 'servico-comparison', `${formatarMoeda(historico.servico_divida)} ${historico.aprovado ? '<' : '≥'} ${formatarMoeda(historico.limite)} · A igualdade reprova esta etapa.`));
+        etapa.appendChild(criar('p', 'servico-comparison', `${formatarMoeda(historico.servico_divida)} ${historico.aprovado ? '≤' : '>'} ${formatarMoeda(historico.limite)} · Diagnóstico independente da projeção.`));
 
         const detalhesExercicio = criar('details', 'servico-exercicio-detalhes');
         detalhesExercicio.appendChild(criar('summary', '', 'Dados do exercício anterior · SICONFI'));
         const exercicio = criar('div', 'servico-exercicio-dados');
-        linha(exercicio, 'RCL ajustada para endividamento', moedaOuIndisponivel(dados.rcl_historica));
+        linha(exercicio, 'RCL ajustada para endividamento', moedaOuIndisponivel(rclHistorica?.valor ?? historico.rcl ?? dados.rcl_historica));
         linha(exercicio, 'Juros e encargos liquidados', formatarMoeda(historico.juros_encargos));
         linha(exercicio, 'Amortização liquidada', formatarMoeda(historico.amortizacao));
         linha(exercicio, 'Restos a pagar não processados', formatarMoeda(historico.restos_juros + historico.restos_amortizacao));
         linha(exercicio, 'Serviço da dívida', formatarMoeda(historico.servico_divida), true);
         linha(exercicio, 'Limite (11,5% da RCL)', formatarMoeda(historico.limite), true);
         const periodo = valor => valor == null ? 'período indisponível' : `${valor}º bimestre`;
-        exercicio.appendChild(criar('p', 'servico-source', `Fonte dos dados: SICONFI / RREO · RCL: Anexo 03, ${periodo(dados.periodo_rcl_historica)} de ${dados.ano_historico}; despesas: Anexo 01, ${periodo(dados.periodo_historico)} de ${dados.ano_historico}.`));
+        exercicio.appendChild(criar('p', 'servico-source', `Fonte dos dados: SICONFI / RREO · RCL: Anexo 03, ${periodo(rclHistorica?.periodo ?? dados.periodo_rcl_historica)} de ${dados.ano_historico}; despesas: Anexo 01, ${periodo(despesasHistoricas?.periodo ?? dados.periodo_historico)} de ${dados.ano_historico}.`));
         detalhesExercicio.appendChild(exercicio);
         etapa.appendChild(detalhesExercicio);
     } else {
@@ -978,41 +1011,66 @@ function renderizarServicoDivida(regra, container) {
     const detalhesBase = criar('details', 'servico-exercicio-detalhes');
     detalhesBase.appendChild(criar('summary', '', 'Dados-base da projeção · SICONFI'));
     const base = criar('div', 'servico-exercicio-dados');
-    linha(base, 'RCL de referência', moedaOuIndisponivel(dados.rcl_atual));
-    linha(base, 'Período da RCL', dados.periodo_rcl_atual ? `${dados.periodo_rcl_atual}º bimestre de ${dados.ano_atual}` : 'Não disponível');
+    linha(base, 'RCL de referência', moedaOuIndisponivel(rclProjecao?.valor ?? dados.rcl_atual));
+    linha(base, 'Período da RCL', rclProjecao ? `${rclProjecao.periodo}º bimestre de ${rclProjecao.exercicio}` : 'Não disponível');
     linha(base, 'Fonte da RCL', 'SICONFI / RREO, Anexo 03');
-    linha(base, 'Fator de projeção', dados.fator ?? 'Não disponível');
+    linha(base, 'Taxa anual da RCL', fatorProjecao?.taxa_percentual != null ? `${fatorProjecao.taxa_percentual}%` : 'Não disponível');
     const referencia = dados.referencia_rreo_atual;
     if (referencia) {
         linha(base, 'Juros e encargos de referência', formatarMoeda(referencia.juros_encargos));
         linha(base, 'Amortização de referência', formatarMoeda(referencia.amortizacao));
         linha(base, 'Período das despesas', `${referencia.periodo}º bimestre de ${referencia.ano} · ${referencia.origem}`);
     }
-    base.appendChild(criar('p', 'servico-source', 'Os valores do RREO são referência oficial. Os pagamentos futuros são informados pelo usuário nos campos abaixo.'));
+    base.appendChild(criar('p', 'servico-source', 'RCL: SICONFI. Parcelas da nova operação: condições informadas na simulação. Demais dívidas: pagamentos declarados no PVL consultado.'));
     detalhesBase.appendChild(base);
     baseContainer.appendChild(detalhesBase);
 
-    const problemas = [];
-    if (dados.rcl_historica == null) problemas.push('RCL do exercício anterior: não disponível.');
-    if (dados.periodo_historico == null) problemas.push('Juros e amortização do exercício anterior: não disponíveis.');
-    if (dados.rcl_atual == null) problemas.push('RCL de referência para a projeção: não disponível.');
-    if (!referencia) problemas.push('Juros e amortização de referência do ano atual: não disponíveis; os campos da operação continuam editáveis.');
-    if (dados.periodo_historico && dados.periodo_rcl_historica && dados.periodo_historico !== dados.periodo_rcl_historica) {
-        problemas.push('RCL e despesas do exercício anterior pertencem a bimestres diferentes.');
-    }
-    if (regra.descricao?.startsWith('Dados inválidos ou ambíguos:')) {
-        problemas.push(regra.descricao.replace('Dados inválidos ou ambíguos:', 'Verifique o dado:'));
-    }
-    if (problemas.length) {
-        const aviso = secao('ATENÇÃO NOS DADOS DA PROJEÇÃO');
+    // As pendências são avaliadas pelo backend; não inferir ausência por campos legados.
+    if (dados.motivos?.length && regra.aprovado == null && !dados.resultado_numerico) {
+        const aviso = secao('Pendências da análise');
         aviso.classList.add('servico-warning');
-        aviso.appendChild(criar('p', '', 'Não foi possível obter automaticamente todos os dados necessários.'));
-        const lista = criar('ul', '');
-        problemas.forEach(problema => lista.appendChild(criar('li', '', problema)));
-        aviso.appendChild(lista);
-        aviso.appendChild(criar('p', '', !historico || dados.rcl_atual == null
-            ? 'O cálculo não pode continuar até que os dados oficiais necessários estejam disponíveis.'
-            : 'A referência do ano atual é opcional; o cálculo continuará com os lançamentos válidos da operação.'));
+        aviso.appendChild(criar('p', '', regra.descricao));
+    }
+
+    if (Array.isArray(dados.linhas) && dados.linhas.length) {
+        const projecao = criar('details', 'servico-section servico-exercicio-detalhes');
+        projecao.appendChild(criar('summary', '', 'Composição anual e médias do CAED'));
+        if (dados.media_termino != null) {
+            const medias = [
+                `Até o término: ${formatarPercentual(dados.media_termino)}`,
+                dados.media_2027 != null ? `Até 2027: ${formatarPercentual(dados.media_2027)}` : null,
+                `Média utilizada: ${formatarPercentual(dados.percentual_determinante)} · Limite: 11,5%`
+            ].filter(Boolean);
+            projecao.appendChild(criar('p', '', medias.join(' · ')));
+            if (dados.resultado_numerico) projecao.appendChild(criar('p', 'servico-source',
+                'Referência: pagamentos declarados no PVL consultado. A confirmação de completude é separada do resultado numérico.'));
+        }
+        const fonte = dados.referencia_publica_demais;
+        if (fonte) {
+            const fontes = criar('details', 'servico-exercicio-detalhes');
+            fontes.appendChild(criar('summary', '', 'Fonte dos pagamentos'));
+            fontes.appendChild(criar('p', 'servico-source',
+                `${fonte.fonte} · PVL ${fonte.snapshot?.numeroPvl || 'não disponível'} · Referência: ${fonte.snapshot?.data || 'não disponível'} · Consulta: ${fonte.consultado_em || 'não disponível'}`));
+            for (const motivo of fonte.motivos || []) fontes.appendChild(criar('p', 'servico-source', motivo));
+            fontes.appendChild(criar('p', 'servico-source', dados.cobertura?.completa
+                ? 'Completude confirmada pelo usuário para estes dados.'
+                : 'Completude do conjunto de dívidas não confirmada pelo usuário.'));
+            projecao.appendChild(fontes);
+        }
+        const rolagem = criar('div', 'tlp-tabela-rolagem');
+        const tabela = criar('table', 'tlp-tabela');
+        const cabecalho = criar('tr', '');
+        for (const titulo of ['Ano', 'Juros e encargos', 'Amortização', 'Demais dívidas', 'Total anual', 'RCL projetada', 'Comprometimento']) cabecalho.appendChild(criar('th', '', titulo));
+        const thead = criar('thead', ''); thead.appendChild(cabecalho); tabela.appendChild(thead);
+        const tbody = criar('tbody', '');
+        for (const item of dados.linhas) {
+            const tr = criar('tr', '');
+            for (const valor of [item.ano, moedaOuIndisponivel(item.juros_encargos), moedaOuIndisponivel(item.amortizacao),
+                moedaOuIndisponivel(item.demais_operacoes), moedaOuIndisponivel(item.caed_total), moedaOuIndisponivel(item.rcl_projetada),
+                item.percentual == null ? 'Não disponível' : formatarPercentual(item.percentual * 100)]) tr.appendChild(criar('td', '', valor));
+            tbody.appendChild(tr);
+        }
+        tabela.appendChild(tbody); rolagem.appendChild(tabela); projecao.appendChild(rolagem); resultados.appendChild(projecao);
     }
 
     for (const numero of [1, 2]) {
@@ -1081,14 +1139,14 @@ function renderizarServicoDivida(regra, container) {
     entender.appendChild(criar('summary', '', 'Critérios e base normativa'));
     entender.append(
         criar('p', '', 'O serviço da dívida soma juros, encargos e amortizações; no exercício anterior, também entram os restos a pagar não processados encontrados no RREO.'),
-        criar('p', '', 'No exercício anterior, o limite é a RCL do exercício × 11,5%. Nas hipóteses futuras, o limite é a RCL projetada × 11,5%. A margem é o limite menos o serviço considerado. Igualdade não atende à regra implementada.'),
-        criar('p', '', 'Nas hipóteses futuras, cada ano usa RCL de referência × fator elevado ao número do ano projetado. A decisão usa a média dos percentuais anuais, com aprovação quando essa média é inferior a 11,5%.'),
+        criar('p', '', 'O diagnóstico histórico usa a RCL publicada. A projeção usa os pagamentos anuais e a RCL projetada; a média determinante de até 11,5% atende ao limite.'),
+        criar('p', '', 'A RCL é projetada a partir do bimestre de referência. São comparadas as médias até o término da operação e até 2027, quando aplicável, utilizando a menor.'),
         criar('p', '', 'Referências do projeto: Resolução do Senado Federal nº 43/2001 e Manual para Instrução de Pleitos (MIP).'));
     resultados.appendChild(entender);
 }
 
 function mostrarDetalhesRegra(regra) {
-    try { obterOperacaoCompartilhada(); atualizarContextoOperacao(); } catch (erro) { mostrarErroOperacao(erro.message); return; }
+    try { obterOperacaoCompartilhada(); atualizarContextoOperacao(); } catch (erro) { mostrarErroOperacao(mensagemErroAmigavel(erro)); return; }
     document.getElementById('modal-feedback').dataset.regraTipo = regra.tipo || '';
     const servico = regra.tipo === 'servico_divida';
     document.getElementById('servico-resultados').classList.toggle('hidden', !servico);
@@ -1100,7 +1158,7 @@ function mostrarDetalhesRegra(regra) {
             ? `Base normativa informada para a regra: ${regra.base_normativa}. O fator é um parâmetro editável salvo no sistema.`
             : 'O fator é um parâmetro editável salvo no sistema; não há fonte normativa específica informada para o seu valor.';
     }
-    const podeProjetar = servico && regra.dados_calculados?.historico?.aprovado === true;
+    const podeProjetar = servico;
     const painelProjecoes = document.getElementById('servico-projecoes');
     painelProjecoes.classList.toggle('hidden', !podeProjetar);
     painelProjecoes.classList.toggle('servico-etapa-aprovada', podeProjetar && regra.aprovado === true);
@@ -1267,7 +1325,7 @@ function mostrarMensagem(mensagem, tipo = 'info') {
      // Criar elemento de notificação
     const notificacao = document.createElement('div');
     notificacao.className = `fixed top-4 right-4 max-w-md whitespace-pre-line p-4 rounded-lg shadow-lg z-50 ${obterClasseTipo(tipo)}`;
-    notificacao.textContent = mensagem;
+    notificacao.textContent = mensagemErroAmigavel(mensagem);
     
     document.body.appendChild(notificacao);
     
@@ -1362,7 +1420,7 @@ function updateMonitoringUI(status) {
         dbText.textContent = status.database.status; // 'Offline' ou 'Erro'
         dbText.className = 'text-red-600 font-semibold';
     }
-    dbMessage.textContent = status.database.mensagem;
+    dbMessage.textContent = mensagemErroAmigavel(status.database.mensagem);
 
     // Atualiza o Card de CPU
     document.getElementById('status-cpu-percent').textContent = status.resources.cpu_percent;

@@ -544,3 +544,51 @@ button[aria-busy="true"] { cursor: progress; opacity: .88; }
 .tlp-tabela th:first-child,.tlp-tabela td:first-child {text-align:left;}
 .simulacao-formulario .tlp-hipotese {display:flex;align-items:flex-start;gap:.6rem;}
 .simulacao-formulario .tlp-hipotese input {width:auto;flex:0 0 auto;margin-top:.3rem;}
+
+/* Navegação lateral das seções existentes. */
+body { --sidebar-width: 240px; padding-left: var(--sidebar-width); }
+body > nav.app-sidebar {
+    position: fixed; inset: 0 auto 0 0; width: var(--sidebar-width);
+    background: #fff; border-right: 1px solid #dce7df; border-bottom: 0;
+    overflow-y: auto; z-index: 30;
+}
+.app-sidebar #navbar-default {
+    display: flex; flex-direction: column; align-items: stretch;
+    min-height: 100%; padding: 28px 16px; gap: 28px;
+}
+#navbar-default .sidebar-marca { padding: 0 12px 24px; border-bottom: 3px solid var(--accent); }
+.sidebar-marca img { display: block; width: 100%; max-width: 180px; height: auto; }
+.sidebar-marca p { margin: 16px 0 0; color: var(--brand-dark); font-size: 14px; font-weight: 700; }
+#navbar-default .jornada-menu {
+    display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch;
+    order: 0; width: 100%; padding: 0; gap: 8px; background: transparent;
+}
+#navbar-default .jornada-menu button,
+#navbar-default .jornada-menu #nav-configuracoes {
+    justify-content: flex-start; width: 100%; min-height: 48px; padding: 12px;
+    border: 1px solid transparent; border-radius: 10px; text-align: left;
+    font-size: 14px; color: #345d42; background: transparent; box-shadow: none;
+}
+#navbar-default .jornada-menu button.ativo {
+    color: var(--brand-dark); background: #e6f3eb; border-color: #cee6d7;
+    box-shadow: inset 3px 0 var(--brand);
+}
+#navbar-default .jornada-menu button:hover { color: var(--brand-dark); background: #eef5f0; }
+#navbar-default .sidebar-acoes { margin-top: auto; padding-top: 24px; border-top: 1px solid #dce7df; }
+#navbar-default #btn-atualizar { width: 100%; white-space: normal; }
+body > .app-conteudo { width: 100%; max-width: 1440px; min-width: 0; }
+@media (max-width: 760px) {
+    body { --sidebar-width: 174px; }
+    .app-sidebar #navbar-default { padding: 20px 10px; gap: 20px; }
+    #navbar-default .sidebar-marca { padding: 0 4px 18px; }
+    #navbar-default .jornada-menu button,
+    #navbar-default .jornada-menu #nav-configuracoes { padding: 10px 8px; font-size: 13px; }
+    body > .app-conteudo { padding: 16px 12px; }
+}
+@media (max-width: 480px) {
+    body { --sidebar-width: 130px; }
+    #navbar-default .jornada-menu button,
+    #navbar-default .jornada-menu #nav-configuracoes { font-size: 12px; }
+    #navbar-default #btn-atualizar { padding: 10px 6px; font-size: 12px; }
+    .sidebar-marca p { font-size: 12px; }
+}

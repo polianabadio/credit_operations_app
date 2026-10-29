@@ -44,7 +44,7 @@ def _executar():
                             'periodo': falha.get('nr_periodo'),
                             'anexo': falha.get('no_anexo'),
                             'poder': falha.get('co_poder'),
-                            'motivo': falha.get('motivo', 'Falha não especificada.'),
+                            'motivo': 'Não foi possível obter estes dados na fonte oficial. Tente atualizar novamente mais tarde.',
                         })
                     _estado['detalhes_falhas'] = _estado['detalhes_falhas'][:3]
         tarefa_capag.join()
@@ -53,7 +53,7 @@ def _executar():
         with _lock:
             _estado['falhas'] += 1
             _estado['detalhes_falhas'].append({'etapa': _estado['etapa'],
-                                               'motivo': str(exc) or type(exc).__name__})
+                                               'motivo': 'A atualização foi interrompida. Tente novamente mais tarde.'})
             _estado['detalhes_falhas'] = _estado['detalhes_falhas'][:3]
     finally:
         with _lock:

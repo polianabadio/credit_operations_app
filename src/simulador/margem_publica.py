@@ -1,5 +1,7 @@
 """Saldo segundo um PVL público, separado da margem de inventário confirmado."""
 from datetime import datetime, timezone
+from .mensagens import mensagem_erro
+from .logger import log
 from decimal import Decimal, localcontext
 
 from .fluxo_credito import CreditFlowLimitService
@@ -63,7 +65,8 @@ def obter_margem_publica(projecao, sadipem, client=None):
             resultado['motivos'].append('Nenhuma operação não contratada listada no PVL; isso não comprova inexistência fora dessa declaração.')
         return resultado
     except (SadipemApiError, ValueError, TypeError) as exc:
-        resultado['motivos'].append(str(exc))
+        log.warning('Não foi possível calcular a margem pública.', details=str(exc))
+        resultado['motivos'].append(mensagem_erro(exc, 'Não foi possível consultar a margem na fonte oficial. Tente novamente mais tarde.'))
         return resultado
 
 

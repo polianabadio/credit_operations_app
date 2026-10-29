@@ -101,11 +101,11 @@ async function testDbConnection() {
             statusSpan.textContent = result.mensagem;
             statusSpan.className = 'text-green-600 font-semibold';
         } else {
-            statusSpan.textContent = 'Falha: ' + result.mensagem;
+            statusSpan.textContent = mensagemErroAmigavel(result.mensagem);
             statusSpan.className = 'text-red-600 font-semibold';
         }
     } catch (e) {
-        statusSpan.textContent = 'Erro ao comunicar com o backend.';
+        statusSpan.textContent = 'Não foi possível se conectar ao aplicativo. Feche e abra novamente para tentar restabelecer a conexão.';
         statusSpan.className = 'text-red-600 font-semibold';
     }
 }
@@ -119,9 +119,9 @@ async function saveDbConfig() {
             mostrarMensagem(result.mensagem, 'success');
             closeDbConfigModal();
         } else {
-            mostrarMensagem('Erro ao salvar: ' + result.mensagem, 'error');
+            mostrarMensagem(mensagemErroAmigavel(result.mensagem), 'error');
         }
     } catch (e) {
-        mostrarMensagem('Erro grave ao comunicar com o backend para salvar.', 'error');
+        mostrarMensagem('Não foi possível salvar as configurações. Feche e abra o aplicativo e tente novamente.', 'error');
     }
 }

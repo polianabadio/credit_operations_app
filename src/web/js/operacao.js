@@ -165,7 +165,7 @@ function renderizarAvaliacoesComplementares() {
 
 function abrirModalAvaliacao(tipo) {
     try { obterOperacaoCompartilhada(); }
-    catch (erro) { mostrarErroOperacao(erro.message); return; }
+    catch (erro) { mostrarErroOperacao(mensagemErroAmigavel(erro)); return; }
     atualizarContextoOperacao();
     focoAntesModal = document.activeElement;
     const modal = document.getElementById(`modal-${tipo}`);
