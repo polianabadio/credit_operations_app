@@ -10,9 +10,7 @@ import sys
 import yaml
 from pathlib import Path
 import configparser
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from .database_models import db, Base
+from .database_models import db
 from .logger import log
 
 
@@ -70,12 +68,6 @@ class ConfigManager:
 
     def _create_default_config(self):
         """Define e salva as configurações padrão no parser."""
-        self.parser['database'] = {
-            'type': 'sqlite',
-            'host': 'localhost', 'port': '5432', 'name': 'simulador_db', 'user': 'postgres', 'password': '',
-            # IMPORTANTE: Caminho relativo ao executável
-            'path': 'instance/database.db' 
-        }
         self.parser['updater'] = { 'anos_historico': '3' }
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self.save()
@@ -143,7 +135,7 @@ EEL_POSITION = "center"
 
 # Configurações da aplicação
 APP_NAME = "Simulador de Operações de Crédito"
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.1.9"
 DEBUG = True
 
 # Criar diretórios necessários
@@ -198,16 +190,15 @@ def carregar_modelo_yaml():
         return {}
 
 def configurar_banco_dados():
-    """Configura e inicializa o banco de dados SQLAlchemy."""
+    """Nome legado da inicialização do cache JSON; não abre banco SQL."""
     try:
-        DATABASE_URL = config_manager.get_db_engine_url()
-        engine = create_engine(DATABASE_URL, echo=False)
-        Session = sessionmaker(bind=engine)
-        db.session = Session()
-        # Cria tabelas se não existirem
-        Base.metadata.create_all(engine)
-        log.success("Conexão principal com o banco de dados estabelecida com sucesso.", details=f'Caminho do banco: {DATABASE_URL}')
+        from .cache_json import CacheJson, SessaoJson
+        pasta = Path(os.environ.get('SIMULADOR_CACHE_DIR', str(DATA_DIR / 'cache')))
+        armazenamento = CacheJson(pasta / 'dados-fiscais.json')
+        armazenamento.ler()
+        db.session = SessaoJson(armazenamento)
+        log.success('Cache JSON de dados fiscais disponível.')
         return True
-    except Exception as e:
-        log.critical("ERRO CRÍTICO AO CONECTAR AO BANCO DE DADOS.", details=str(e))
+    except Exception as exc:
+        log.error('Não foi possível abrir o cache JSON.', details=str(exc))
         return False

@@ -59,8 +59,9 @@ class Cliente:
         return self.linhas
 
 
-def test_zero_declarado_publica_saldo_sem_confirmar_inventario():
-    r=obter_margem_publica(projecao(),referencia(),Cliente())
+@pytest.mark.parametrize('indicador', ['0', 0])
+def test_zero_declarado_publica_saldo_sem_confirmar_inventario(indicador):
+    r=obter_margem_publica(projecao(),referencia(),Cliente(indicador=indicador))
     assert r['rows'][0]['scheduledDisbursements']==0
     assert r['rows'][0]['margemEstimada']==160
     assert r['coverageConfirmed'] is False

@@ -30,7 +30,7 @@ def obter_margem_publica(projecao, sadipem, client=None):
             pagamentos = SadipemPagamentosService(client or _client).por_pvl(snapshot['idPleito'])
             relevantes = [p for p in pagamentos if str(p.get('ano')) == str(ano)]
             if (len(relevantes) == 1 and relevantes[0].get('id_pleito') == snapshot['idPleito']
-                    and str(relevantes[0].get('indicador_liberacoes') or '').strip() == '0'):
+                    and str(relevantes[0].get('indicador_liberacoes') if relevantes[0].get('indicador_liberacoes') is not None else '').strip() == '0'):
                 contratadas = Decimal(0)
                 fonte_zero = 'opc-cronograma-pagamentos: indicador_liberacoes=0 (não possui liberações contratadas previstas)'
         if contratadas is None:

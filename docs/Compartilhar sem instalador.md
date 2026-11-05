@@ -1,62 +1,48 @@
-# Compartilhar o simulador pela pasta da rede
+# Simulador na pasta compartilhada
 
-Este método usa uma pasta compartilhada para distribuir o **código**. Cada pessoa instala Python uma vez e abre o simulador por um atalho. Ao iniciar, o atalho copia a versão mais recente para o próprio computador. Não é necessário gerar `.exe` nem usar Inno Setup ou Docker.
+A aplicação usa **cache JSON compartilhado**, sem banco SQL e sem salvar os resultados das simulações. O código é distribuído por versões; cada computador recebe a versão publicada ao abrir o atalho da equipe. Não é necessário manter um serviço Python no servidor.
 
-## 1. Preparar a pasta compartilhada
+## Preparação
 
-1. No Explorador de Arquivos, abra a pasta da rede à qual toda a equipe tem acesso.
-2. Crie nela uma pasta chamada `SimuladorCredito`. Você precisa ter permissão de escrita; a equipe precisa apenas de leitura.
-3. Clique na barra de endereço do Explorador e copie o caminho. Prefira o endereço completo iniciado por `\\`, por exemplo `\\servidor\equipe\SimuladorCredito`. Cada computador deve conseguir abrir **esse mesmo endereço**.
+- Windows 64 bits. Python e bibliotecas estão incluídos no aplicativo portátil; a equipe não instala Python nem usa pip.
+- Acesso à internet para consultar as APIs. A primeira abertura copia o aplicativo e suas bibliotecas pela rede.
+- Equipe com leitura nas versões do programa e **leitura, criação, renomeação e exclusão de arquivos na subpasta `cache`**. Essas permissões são necessárias para a substituição atômica do JSON.
+- Publicador com escrita na pasta das versões e nos arquivos de inicialização.
 
-Não copie `settings.ini`, `instance`, `database.db`, `dist` ou a pasta inteira do projeto para a rede. O script de publicação seleciona somente os arquivos necessários.
+## Publicar
 
-## 2. Preparar cada computador (uma vez)
-
-1. Abra o PowerShell pelo menu Iniciar e digite `py -3.13 --version`.
-2. Se aparecer `Python 3.13.x`, continue. Caso contrário, instale o Python 3.13 em cada computador. Na instalação, marque a opção para adicionar Python ao PATH. Se o computador da equipe bloquear instalações, solicite essa instalação ao suporte de TI.
-3. Confirme que o computador acessa o caminho `\\servidor\equipe\SimuladorCredito` pelo Explorador. Na primeira execução também será preciso acessar a internet (ou o repositório de pacotes Python da organização) para instalar as bibliotecas.
-
-## 3. Publicar a primeira versão (somente no seu computador)
-
-Abra o PowerShell na pasta do projeto, onde está `app.py`, e execute, trocando o endereço pelo caminho real da sua pasta:
+Na pasta do projeto, execute no PowerShell, com um número de versão novo:
 
 ```powershell
-.\compartilhamento\Publicar-Versao.ps1 -PastaCompartilhada '\\servidor\equipe\SimuladorCredito' -Versao '2.1.0'
+.\compartilhamento\Publicar-Versao.ps1 -PastaCompartilhada '\\sefazarquivos\STE\GDPRET\GEDP Flávio\SimuladorCredito' -Versao '2.1.3'
 ```
 
-Se o PowerShell bloquear a execução de scripts, use nesta janela:
+No computador de manutenção, a `.venv` deve conter `requirements-runtime.txt` e PyInstaller. O publicador gera um aplicativo portátil atualizado antes de copiar a versão. Também aceita `-ExecutavelPortatil` com uma pasta previamente gerada e validada por `Empacotar-Portatil.ps1`. A pasta de destino deve existir. O publicador copia o aplicativo e seus recursos; não publica `settings.ini`, banco antigo, logs ou arquivos pessoais. Não altere uma versão já publicada. O marcador `versao-atual.txt` só aponta para uma versão após a cópia terminar.
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\compartilhamento\Publicar-Versao.ps1' -PastaCompartilhada '\\servidor\equipe\SimuladorCredito' -Versao '2.1.0'
-```
+## Abrir
 
-O comando cria `versoes\2.1.0`, `Iniciar-Simulador.ps1` e `versao-atual.txt` na rede. Confira se aparecer a mensagem de versão publicada.
+Abra **Simulador de Crédito** (atalho com ícone) na pasta compartilhada ou copie esse atalho para a Área de Trabalho. O terminal fica oculto; falhas de inicialização aparecem em uma janela de aviso. Na primeira execução, a cópia do aplicativo pode demorar. `Abrir-Simulador.cmd` continua disponível para diagnóstico com terminal visível.
 
-## 4. Criar o atalho da equipe (uma vez por pessoa)
+O inicializador copia o código para `%LOCALAPPDATA%\SimuladorCredito\versoes` com Python e bibliotecas incluídos. **Não cria banco local.** Todos consultam `cache\dados-fiscais.json` na rede. Se o cache estiver vazio, use **Atualizar Dados Siconfi**. As consultas mantêm os prazos de atualização e as referências das fontes.
 
-1. Na Área de Trabalho, clique com o botão direito e escolha **Novo → Atalho**.
-2. No campo do local, cole a linha abaixo, substituindo o caminho de exemplo pelo endereço real da pasta compartilhada:
+As simulações ficam na memória de cada sessão. Logs, preferências de execução e eventual declaração explícita de cobertura CAED ficam no diretório local; não são análises compartilhadas nem comprovação automática de cobertura.
 
-```text
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "\\servidor\equipe\SimuladorCredito\Iniciar-Simulador.ps1"
-```
+## Atualizações
 
-3. Clique em **Avançar**, dê o nome `Simulador de Operações de Crédito` e clique em **Concluir**.
-4. Abra o atalho. Na primeira vez, espere a instalação das bibliotecas e mantenha a janela do PowerShell aberta enquanto usar o simulador. O simulador abrirá sua interface. Nas vezes seguintes, a abertura será mais rápida.
-5. Se o seletor de anos vier vazio, clique em **Atualizar Dados Siconfi** para carregar os dados no banco local desse computador.
+Publique um novo número de versão. Cada pessoa recebe a atualização ao fechar e abrir o atalho. Sessões já abertas recebem um aviso em até um minuto, enquanto a rede estiver acessível; não são encerradas automaticamente.
 
-## 5. Publicar mudanças depois
+As gravações do cache são serializadas por bloqueio de arquivo e publicadas por substituição atômica. Outra máquina relê o JSON quando consulta os dados novamente. Uma tela já renderizada não é uma atualização em tempo real: reabra a aba ou atualize a consulta para visualizar dados novos. Esses mecanismos devem ser verificados também com os acessos reais da equipe no compartilhamento.
 
-Depois de modificar e testar o código no seu computador, execute de novo o comando de publicação com **um número novo**, por exemplo `2.1.1`:
+Sem acesso à pasta da rede, a aplicação não pode abrir seu cache compartilhado. Não há troca silenciosa para um cache local divergente. O servidor deve incluir a pasta `cache` na rotina de backup. JSON inválido gera erro e não é sobrescrito como se estivesse vazio.
 
-```powershell
-.\compartilhamento\Publicar-Versao.ps1 -PastaCompartilhada '\\servidor\equipe\SimuladorCredito' -Versao '2.1.1'
-```
+Para voltar a uma versão, altere `versao-atual.txt` para uma versão compatível já publicada e reabra o atalho. Versões anteriores à adoção do JSON não são compatíveis com este cache.
 
-Peça à equipe para fechar e abrir o atalho. Isso basta para receber a versão nova; ninguém precisa reinstalar o programa. Uma sessão já aberta continua na versão anterior até ser fechada.
+A pasta de entrada da equipe exibe somente o atalho. Arquivos e pastas de suporte usam o atributo Oculto do Windows, mantendo os caminhos existentes. Isso organiza a apresentação; não restringe permissões. A manutenção pode habilitar a exibição de itens ocultos no Explorador.
 
-As configurações, o banco SQLite e os dados pessoais ficam em `%LOCALAPPDATA%\SimuladorCredito\dados` em cada computador. A atualização de código não apaga esse banco. A pasta compartilhada guarda somente versões do programa e o atalho de inicialização.
+## Abertura e atualização fiscal
 
-Para voltar a uma versão anterior, altere o conteúdo de `versao-atual.txt` na pasta compartilhada para o número da versão anterior, salve e reabra o atalho. Não altere o conteúdo de uma versão já publicada.
+A abertura apresenta primeiro o cache fiscal compartilhado e verifica o ano atual em segundo plano. O botão **Atualizar Dados Siconfi** executa também a revisão do histórico, respeitando os prazos de cache por período. CAPAG automática não mantém o indicador fiscal de atualização aguardando sua consulta. SADIPEM mantém respostas completas por até uma hora no cache compartilhado, com chave por URL, endpoint e parâmetros; falhas ou paginação incompleta não substituem respostas íntegras. A abertura consulta o PVL atual para a margem, sem buscar cronogramas históricos e pagamentos de gráficos que não são exibidos. Chamadas HTTP do painel público executam fora do loop de eventos do Eel para preservar a comunicação da interface. Essas otimizações não alteram valores, períodos ou critérios de cobertura.
 
-Se a rede estiver indisponível, o atalho não conseguirá verificar qual versão está publicada. Se a instalação de bibliotecas falhar por falta de acesso ao repositório Python, o suporte de TI precisará liberar o acesso ou fornecer essas bibliotecas internamente.
+O painel fiscal e a lista de anos são reutilizados em `cache/painel-fiscal.json`, um cache derivado apenas da posição pública, sem entradas ou resultados de simulações. A assinatura combina versão do aplicativo, data e data/tamanho do arquivo fiscal. Qualquer mudança invalida o painel; um cache derivado inválido é reconstruído a partir da fonte. RCL projetada e teto de 16% aparecem mesmo quando faltam liberações, preservando a margem como desconhecida quando não puder ser calculada.
+
+A verificação de distribuição deve incluir `--verificar-distribuicao --verificar-apis`: consulta HTTPS SICONFI/SADIPEM e importa períodos reais de RREO/RGF em um JSON de diagnóstico isolado. Não aprovar uma publicação apenas com leitura do cache. O empacotamento inclui recursos adicionais exigidos pelo módulo SSL do Python utilizado no build; preservar verificação de certificados, sem usar `verify=False`.

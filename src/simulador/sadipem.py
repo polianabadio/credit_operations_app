@@ -5,6 +5,9 @@ import os
 import threading
 import time
 import unicodedata
+import hashlib
+import tempfile
+from pathlib import Path
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
@@ -66,7 +69,7 @@ class SadipemClient:
     """Cliente serial: no máximo uma chamada por segundo, inclusive em retries."""
 
     def __init__(self, session=None, base_url=BASE_URL, cache_seconds=CACHE_SECONDS,
-                 min_interval=1.05, clock=time.monotonic, sleeper=time.sleep):
+                 min_interval=1.05, clock=time.monotonic, sleeper=time.sleep, cache_dir=None):
         self.session = session or requests.Session()
         self.base_url = base_url.rstrip('/') + '/'
         self.cache_seconds = cache_seconds
@@ -76,6 +79,38 @@ class SadipemClient:
         self._lock = threading.RLock()
         self._ultima = float('-inf')
         self._cache = {}
+        self.cache_dir = Path(cache_dir) / 'sadipem' if cache_dir else None
+
+    def _arquivo_cache(self, chave):
+        identidade = json.dumps([self.base_url, chave], ensure_ascii=False)
+        return self.cache_dir / (hashlib.sha256(identidade.encode()).hexdigest() + '.json')
+
+    def _ler_cache_compartilhado(self, chave):
+        if self.cache_dir is None: return None
+        try:
+            registro = json.loads(self._arquivo_cache(chave).read_text(encoding='utf-8'))
+            idade = time.time() - registro['consultado_em']
+            if 0 <= idade < self.cache_seconds and isinstance(registro.get('items'), list):
+                return registro['items'], self.cache_seconds - idade
+        except (OSError, ValueError, TypeError, KeyError):
+            pass
+        return None
+
+    def _gravar_cache_compartilhado(self, chave, itens):
+        if self.cache_dir is None: return
+        temporario = None
+        try:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=self.cache_dir,
+                                             suffix='.tmp', delete=False) as arquivo:
+                temporario = Path(arquivo.name)
+                arquivo.write(json.dumps({'consultado_em': time.time(), 'items': itens}, ensure_ascii=False))
+            os.replace(temporario, self._arquivo_cache(chave))
+        except OSError as exc:
+            log.warning('Cache compartilhado SADIPEM não pôde ser atualizado.', details=str(exc))
+        finally:
+            if temporario is not None:
+                temporario.unlink(missing_ok=True)
 
     def listar(self, endpoint, params=None, cancel_event=None):
         if endpoint not in ('pvl', 'opc-cronograma-liberacoes',
@@ -88,6 +123,11 @@ class SadipemClient:
             salvo = self._cache.get(chave)
             if salvo and self.clock() - salvo[0] < self.cache_seconds:
                 return [dict(item) for item in salvo[1]]
+            compartilhado = self._ler_cache_compartilhado(chave)
+            if compartilhado is not None:
+                itens, restante = compartilhado
+                self._cache[chave] = (self.clock() - (self.cache_seconds - restante), itens)
+                return [dict(item) for item in itens]
             itens, offset = [], 0
             while True:
                 dados = self._pagina(endpoint, {**params, 'offset': offset, 'limit': 5000}, cancel_event)
@@ -100,6 +140,7 @@ class SadipemClient:
                 if not pagina:
                     raise SadipemApiError('Paginação vazia com hasMore=true.')
                 offset += len(pagina)
+            self._gravar_cache_compartilhado(chave, itens)
             self._cache[chave] = (self.clock(), itens)
             return [dict(item) for item in itens]
 
@@ -206,10 +247,10 @@ class SadipemCdpService:
         return self.client.listar('res-cdp', {'id_pleito': id_pleito}, cancel_event)
 
 
-_client = SadipemClient()
+_client = SadipemClient(cache_dir=os.getenv('SIMULADOR_CACHE_DIR'))
 
 
-def obter_comprometimento_goias(ano, rcl_referencia=None, cancel_event=None, client=None):
+def obter_comprometimento_goias(ano, rcl_referencia=None, cancel_event=None, client=None, incluir_historico=True):
     """Retorna a parcela conhecida do snapshot; não conclui MGA/margem integral."""
     cliente = client or _client
     resultado = {'ano': int(ano), 'statusDadosMga': SadipemMGADataStatus.UNAVAILABLE,
@@ -247,7 +288,7 @@ def obter_comprometimento_goias(ano, rcl_referencia=None, cancel_event=None, cli
                 for linha in linhas) else 'NO_DATA'
             # Mostrar a última fotografia com cronograma somente como referência
             # histórica. Nunca aproveitá-la como comprometimento do ano atual.
-            for candidato in pvls[1:6]:
+            for candidato in (pvls[1:6] if incluir_historico else []):
                 try:
                     antigas = SadipemLiberacoesService(cliente).por_pvl(candidato['idPleito'], cancel_event)
                 except SadipemApiError as exc:

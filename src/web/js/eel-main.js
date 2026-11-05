@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     mostrarSecao('secao-painel');
     await Promise.allSettled([carregarDadosIniciais(), carregarPainelFiscal()]);
     adicionarLinhaFluxoCredito();
-    atualizarDadosSiconfi();
+    atualizarDadosSiconfi(true);
 });
 
 function recuperarConexaoBackend() {
@@ -71,7 +71,11 @@ function configurarEventListeners() {
     });
     campoValorRequisitado.addEventListener('blur', () => {
         try {
-            campoValorRequisitado.value = lerValorRequisitado(campoValorRequisitado.value).formatado;
+            const normalizado = lerValorRequisitado(campoValorRequisitado.value);
+            if (document.getElementById('operacao-indexador')?.value === 'CAMBIAL') {
+                const [inteiro,centavos] = normalizarValorMonetario(campoValorRequisitado.value).numero.split('.');
+                campoValorRequisitado.value = `${document.getElementById('operacao-moeda-contrato').value} ${inteiro.replace(/\B(?=(\d{3})+(?!\d))/g,'.')},${centavos}`;
+            } else campoValorRequisitado.value = normalizado.formatado;
             campoValorRequisitado.setCustomValidity('');
         } catch (error) {
             campoValorRequisitado.setCustomValidity(mensagemErroAmigavel(error));
@@ -100,7 +104,7 @@ function configurarEventListeners() {
     document.getElementById('form-fluxo-credito').addEventListener('submit', executarFluxoCredito);
 
     // Botão para atualizar dados da API Siconfi
-    document.getElementById('btn-atualizar').addEventListener('click', atualizarDadosSiconfi);
+    document.getElementById('btn-atualizar').addEventListener('click', () => atualizarDadosSiconfi());
     
     // Botões e eventos do modal de detalhes
     document.getElementById('btn-fechar-modal').addEventListener('click', esconderModal);
@@ -245,7 +249,7 @@ async function carregarSadipemLimites() {
     renderizarVisaoFiscal(painelConsultado);
     consultaSadipemEmCurso = (async () => {
         try {
-            const resposta = await eel.obter_comprometimento_sadipem_py()();
+            const resposta = await eel.obter_comprometimento_sadipem_py(false)();
             if (painelFiscalAtual !== painelConsultado) return;
             if (resposta.status !== 'sucesso') throw new Error(resposta.mensagem);
             painelFiscalAtual.sadipem = resposta.sadipem;
@@ -453,14 +457,14 @@ async function executarSimulacao(usarProjecaoServico = false) {
 
 let atualizacaoEmAndamento = false;
 
-async function atualizarDadosSiconfi() {
+async function atualizarDadosSiconfi(automatico = false) {
     if (atualizacaoEmAndamento) return;
     atualizacaoEmAndamento = true;
     console.log("Iniciando atualização de dados Siconfi...");
     mostrarCarregamento(true, 'btn-atualizar');
     
     try {
-        let estado = await eel.iniciar_atualizacao_siconfi()();
+        let estado = await eel.iniciar_atualizacao_siconfi(automatico === true)();
         const botao = document.getElementById('btn-atualizar');
         let etapaAnterior = '';
         while (estado.running) {

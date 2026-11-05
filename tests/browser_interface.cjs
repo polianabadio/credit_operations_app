@@ -41,7 +41,7 @@ if(nome==='obter_painel_fiscal_py') return {status:'sucesso',painel:painelFixtur
 if(nome==='iniciar_atualizacao_siconfi') return {running:false,falhas:0};
 if(nome==='obter_comprometimento_sadipem_py') return {status:'erro'};
 if(nome==='get_system_status_py') return {database:{status:'Online',mensagem:'Conexão disponível'},resources:{cpu_percent:'1',memory_mb:'100'}};
-if(nome==='get_db_config') return {type:'sqlite',path:'instance/database.db'};
+if(nome==='get_db_config') return {type:'json',path:'cache/dados-fiscais.json'};
 return {status:'sucesso'};
 };}});`;
 const server = http.createServer((req,res) => {
@@ -118,6 +118,23 @@ const server = http.createServer((req,res) => {
         assert.match(await page.locator('[data-limite="dcl"] .limite-comparacao-escala').textContent(),/Limite: 200,00%/);
         assert.doesNotMatch(await page.locator('[data-limite="dcl"]').textContent(),/21,65%|do limite utilizado/);
         assert.equal(await page.locator('[data-limite="mga"] .limite-comparacao, [data-limite="mga"] svg').count(),0);
+        await page.evaluate(p=>{
+            const teste=structuredClone(p);
+            teste.fluxo_credito={ano:2026,percentualLimite:16,positionOnly:true,parameterValidated:true,rows:[{ano:2026,dadosCompletos:false,rclProjetada:50000000000,tetoAnual:8000000000,scheduledDisbursements:null,margemEstimada:null}]};
+            teste.margemPublica={status:'Indisponível',rows:[]};
+            renderizarVisaoFiscal(teste);
+        },painel);
+        assert.match(await page.locator('[data-limite="mga"]').textContent(),/RCL projetada:.*50\.000\.000\.000,00/);
+        assert.match(await page.locator('[data-limite="mga"]').textContent(),/Teto anual.*8\.000\.000\.000,00/);
+        assert.equal(await page.locator('[data-limite="mga"] .limite-grafico-principal strong').textContent(),'Não determinada');
+        const componentesParciais=page.locator('#painel-limites .margem-componentes');
+        assert.match(await componentesParciais.textContent(),/RCL projetada.*50\.000\.000\.000,00/);
+        assert.match(await componentesParciais.textContent(),/Teto anual.*8\.000\.000\.000,00/);
+        assert.match(await componentesParciais.textContent(),/Liberações existentes incluídasNão disponível/);
+        await page.click('#nav-limites');
+        await page.evaluate(()=>window.scrollTo(0,0));
+        await page.locator('#painel-limites .margem-credito').screenshot({path:path.join(output,'limites-rcl-sem-liberacoes.png')});
+        await page.click('#nav-painel');
         await page.evaluate(p=>{
             const teste=structuredClone(p);
             teste.fluxo_credito={ano:2026,percentualLimite:16,positionOnly:true,parameterValidated:true,rows:[{ano:2026,dadosCompletos:false,rclProjetada:50000000000,tetoAnual:8000000000}],sources:{rclSource:'SICONFI/RREO',rclExercise:2026,rclReferencePeriod:4}};
@@ -252,7 +269,9 @@ const server = http.createServer((req,res) => {
         assert.equal(await page.locator('#nav-configuracoes').count(),0);
         await page.evaluate(()=>mostrarSecao('secao-configuracoes'));
         await page.click('#openDbConfigModalBtn');
-        await page.locator('#db_path').waitFor({state:'visible'});
+        await page.locator('#dbConfigFields').waitFor({state:'visible'});
+        assert.match(await page.locator('#dbConfigFields').innerText(), /cache JSON/);
+        assert.equal(await page.locator('#dbType').count(), 0);
         await page.screenshot({path:path.join(output,'modal-configuracao.png')});
         await page.click('#closeDbConfigModalBtn');
         await page.click('#openMonitoringModalBtn');
@@ -280,8 +299,46 @@ const server = http.createServer((req,res) => {
         assert.equal(await page.evaluate(()=>CambioUI.referencia().id),'USD');
         await page.click('#nav-painel');
         assert.match(await page.locator('.divida-historico-detalhe').textContent(), /US\$/);
+        assert.match(await page.locator('.divida-historico-detalhe').textContent(), /R\$/);
+        assert.equal(await page.locator('#cambio-duplo').count(),0);
+        assert.match(await page.evaluate(()=>CambioUI.formatar(1000)), /R\$.*1\.000,00.*US\$.*200,00/);
+        assert.match(await page.evaluate(()=>CambioUI.formatar(-1000)), /-R\$.*1\.000,00.*-US\$.*200,00/);
+        // Monetary conversion must retain the native table grid.
+        await page.evaluate(()=>{
+            const table=document.createElement('table');table.id='teste-grade-moedas';table.style.width='100%';
+            table.innerHTML='<thead><tr><th>Ano</th><th>Total</th><th>RCL</th><th>Percentual</th></tr></thead><tbody><tr><td>2026</td><td>R$ 1.000,00</td><td>R$ 5.000,00</td><td>20%</td></tr><tr><td>2027</td><td>R$ 2.000,00</td><td>R$ 6.000,00</td><td>33%</td></tr></tbody>';
+            document.body.append(table);
+        });
+        await page.waitForFunction(()=>document.querySelectorAll('#teste-grade-moedas td.valor-duas-moedas').length===4);
+        const grade=await page.locator('#teste-grade-moedas').evaluate(table=>({
+            displays:[...table.querySelectorAll('td.valor-duas-moedas')].map(td=>getComputedStyle(td).display),
+            linhas:[...table.rows].map(row=>[...row.cells].map(cell=>({x:cell.getBoundingClientRect().x,width:cell.getBoundingClientRect().width})))
+        }));
+        assert.ok(grade.displays.every(display=>display==='table-cell'));
+        for(const row of grade.linhas.slice(1)) row.forEach((cell,i)=>{
+            assert.ok(Math.abs(cell.x-grade.linhas[0][i].x)<1);
+            assert.ok(Math.abs(cell.width-grade.linhas[0][i].width)<1);
+        });
+        await page.locator('#teste-grade-moedas').evaluate(table=>table.remove());
+
+        assert.match(await page.locator('.divida-historico-svg').getAttribute('aria-label'), /BRL/);
         assert.match(await page.locator('.divida-historico-svg').getAttribute('aria-label'), /USD/);
         assert.equal(await page.locator('.divida-historico-ponto-dcl').count(),12);
+        await page.evaluate(p=>{
+            const teste=structuredClone(p);
+            teste.fluxo_credito={ano:2026,percentualLimite:16,positionOnly:true,parameterValidated:true,rows:[{ano:2026,dadosCompletos:false,rclProjetada:50000000000,tetoAnual:8000000000}]};
+            teste.margemPublica={status:'Referência pública',snapshot:{numeroPvl:'PVL teste'},rows:[{ano:2026,tetoAnual:8000000000,scheduledDisbursements:1000000000,margemEstimada:7000000000}]};
+            painelFiscalAtual=teste;renderizarVisaoFiscal(teste);
+        },painel);
+        await page.click('#nav-limites');
+        await page.waitForFunction(()=>document.querySelector('#painel-limites .margem-valor-principal strong small')?.textContent.includes('US$'));
+        assert.match(await page.locator('#painel-limites .margem-valor-principal strong > span').textContent(),/R\$.*7\.000\.000\.000,00/);
+        assert.match(await page.locator('#painel-limites .margem-valor-principal strong > small').textContent(),/US\$.*1\.400\.000\.000,00/);
+        assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2),true);
+        await page.setViewportSize({width:1440,height:1000});
+        await page.evaluate(()=>window.scrollTo(0,0));
+        await page.locator('#painel-limites .margem-credito').screenshot({path:path.join(output,'limites-real-e-dolar.png')});
+
         await page.click('#nav-simulacao');
         assert.equal(await page.evaluate(()=>localStorage.getItem('simulador.moeda')),'USD');
         await page.selectOption('#moeda-global','JPY');

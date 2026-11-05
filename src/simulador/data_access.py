@@ -255,18 +255,22 @@ def obter_dados_rreo_para_analise(ano_corrente: int):
     """
     # Consultamos os dois anos de uma vez para eficiência
     anos_necessarios = [ano_corrente, ano_corrente - 1]
-    
-    ultimos = _ultimos_periodos(RREO, anos_necessarios)
-    query_result = db.session.query(
-        RREO.exercicio,
-        RREO.periodo,
-        RREO.anexo,
-        RREO.coluna,
-        RREO.conta,
-        RREO.valor
-    ).join(ultimos, and_(RREO.exercicio == ultimos.c.exercicio,
-                         RREO.anexo == ultimos.c.anexo,
-                         RREO.periodo == ultimos.c.periodo)).all()
+
+    if getattr(db.session, 'json_store', False):
+        from .cache_json import ultimos_registros
+        query_result = ultimos_registros(RREO, anos_necessarios)
+    else:
+        ultimos = _ultimos_periodos(RREO, anos_necessarios)
+        query_result = db.session.query(
+            RREO.exercicio,
+            RREO.periodo,
+            RREO.anexo,
+            RREO.coluna,
+            RREO.conta,
+            RREO.valor
+        ).join(ultimos, and_(RREO.exercicio == ultimos.c.exercicio,
+                             RREO.anexo == ultimos.c.anexo,
+                             RREO.periodo == ultimos.c.periodo)).all()
 
     # Estrutura de dados para armazenar o resultado organizado
     dados_organizados = {
@@ -299,7 +303,7 @@ def obter_dados_rreo_para_analise(ano_corrente: int):
 
     dados_organizados[ano_corrente]['max_periodo'] = max_periodo_corrente
     dados_organizados[ano_corrente - 1]['max_periodo'] = max_periodo_anterior
-    
+
     return dados_organizados
 
 
@@ -314,26 +318,30 @@ def obter_dados_rgf_para_analise(ano_corrente: int):
         dict: Um dicionário com a lista de registros do RGF.
     """
     anos_necessarios = [ano_corrente, ano_corrente - 1]
-    
-    ultimos = _ultimos_periodos(RGF, anos_necessarios)
-    query_result = db.session.query(
-        RGF.exercicio,
-        RGF.coluna,
-        RGF.conta,
-        RGF.valor
-    ).join(ultimos, and_(RGF.exercicio == ultimos.c.exercicio,
-                         RGF.anexo == ultimos.c.anexo,
-                         RGF.periodo == ultimos.c.periodo)).all()
-    
-    # Estrutura de retorno consistente com a do RREO
+
+    if getattr(db.session, 'json_store', False):
+        from .cache_json import ultimos_registros
+        query_result = ultimos_registros(RGF, anos_necessarios)
+    else:
+        ultimos = _ultimos_periodos(RGF, anos_necessarios)
+        query_result = db.session.query(
+            RGF.exercicio,
+            RGF.coluna,
+            RGF.conta,
+            RGF.valor
+        ).join(ultimos, and_(RGF.exercicio == ultimos.c.exercicio,
+                             RGF.anexo == ultimos.c.anexo,
+                             RGF.periodo == ultimos.c.periodo)).all()
+
+        # Estrutura de retorno consistente com a do RREO
     dados_organizados = {
         ano_corrente: {'registros': []},
         ano_corrente - 1: {'registros': []}
     }
-    
+
     if not query_result:
         return dados_organizados
-        
+
     for r in query_result:
         registro_dict = {
             'coluna': r.coluna,

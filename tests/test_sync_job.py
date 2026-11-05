@@ -87,3 +87,23 @@ def test_capag_lenta_nao_atrasa_inicio_do_siconfi(monkeypatch):
         liberar_capag.set()
         trabalho.join(2)
     assert not trabalho.is_alive()
+
+
+def test_abertura_atualiza_ano_atual_sem_varrer_historico_ou_aguardar_capag(monkeypatch):
+    liberar=Event();capag_iniciou=Event();terminou=Event();chamadas=[]
+    def capag_lenta():
+        capag_iniciou.set();liberar.wait(3)
+    def atualizar(escopo,progresso):
+        chamadas.append(escopo);return {'falhas':[]}
+    monkeypatch.setattr(job,'atualizar_capag',capag_lenta)
+    monkeypatch.setattr(job,'atualizar_operacoes_rreo',atualizar)
+    monkeypatch.setattr(job,'atualizar_operacoes_rgf',atualizar)
+    def executar():
+        try:job._executar(automatico=True)
+        finally:terminou.set()
+    tarefa=job.Thread(target=executar)
+    try:
+        tarefa.start();assert capag_iniciou.wait(2)
+        assert terminou.wait(2), 'Sincronização fiscal ficou esperando a CAPAG'
+        assert chamadas==['now','now']
+    finally:liberar.set();tarefa.join(3)

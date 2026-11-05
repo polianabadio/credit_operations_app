@@ -2,29 +2,62 @@
 const CambioUI = (() => {
     let atual = {moeda:'BRL', taxa_brl:'1', id:'BRL', fonte:'Moeda base', data:null};
     let versao = 0;
-    const simbolo = () => new Intl.NumberFormat('pt-BR',{style:'currency',currency:atual.moeda}).formatToParts(0).find(p=>p.type==='currency').value;
-    const exibir = valor => new Intl.NumberFormat('pt-BR',{style:'currency',currency:atual.moeda,minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(valor)/Number(atual.taxa_brl));
+    function referenciaVisual() {
+        if (atual.moeda !== 'BRL' && document.getElementById('operacao-indexador')?.value === 'CAMBIAL'
+            && document.getElementById('operacao-moeda-contrato')?.value === atual.moeda) {
+            try { return {...atual, taxa_brl:decimalCotacaoContratual(document.getElementById('operacao-cotacao-contrato').value),contratual:true}; }
+            catch (_) { return {...atual,taxa_brl:null,contratual:true}; }
+        }
+        return atual;
+    }
+    const formatadores=new Map();
+    function formatador(moeda) {
+        if(!formatadores.has(moeda)) formatadores.set(moeda,new Intl.NumberFormat('pt-BR',{style:'currency',currency:moeda,minimumFractionDigits:2,maximumFractionDigits:2}));
+        return formatadores.get(moeda);
+    }
+    const reais = valor => formatador('BRL').format(Number(valor));
+    const estrangeiro = (valor,ref=referenciaVisual()) => formatador(ref.moeda).format(Number(valor)/Number(ref.taxa_brl));
+    const simbolo = () => formatador(atual.moeda).formatToParts(0).find(p=>p.type==='currency').value;
+    const exibir = valor => { const ref=referenciaVisual(); return ref.moeda!=='BRL' && Number(ref.taxa_brl)>0 ? `${reais(valor)} · ${estrangeiro(valor,ref)}` : reais(valor); };
     const entradaFormatada = valor => new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(valor));
-    const campos = () => [...document.querySelectorAll('#valor-requisitado, #operacao-liberacoes input, #fluxo-credito-linhas input, #linhas-hipotese-2 input')];
+    const campos = () => [...document.querySelectorAll('#valor-requisitado, #operacao-liberacoes input, #fluxo-credito-linhas input, #linhas-hipotese-2 input')].filter(campo => !(document.getElementById('operacao-indexador')?.value === 'CAMBIAL' && (campo.id === 'valor-requisitado' || campo.closest('#operacao-liberacoes'))));
     const valoresOriginais = new WeakMap();
     function rotulos() {
         document.querySelectorAll('label').forEach(label => {
+            if (document.getElementById('operacao-indexador')?.value === 'CAMBIAL' && (label.htmlFor === 'valor-requisitado' || label.closest('#operacao-liberacoes'))) return;
             for (const no of label.childNodes) if (no.nodeType===3 && /\((?:R\$|BRL|USD|EUR|GBP|JPY|CHF|CAD|AUD|CNY)\)/.test(no.textContent))
                 { const novo=no.textContent.replace(/\((?:R\$|BRL|USD|EUR|GBP|JPY|CHF|CAD|AUD|CNY)\)/g, `(${atual.moeda==='BRL'?'R$':atual.moeda})`); if(novo!==no.textContent)no.textContent=novo; }
         });
         for (const campo of campos()) if (campo.placeholder) campo.placeholder=`${simbolo()} 0,00`;
     }
+    function preencherPar(no,valor) {
+        const texto=exibir(valor);
+        if(no.dataset.cambioTexto===texto) return;
+        no.dataset.cambioTexto=texto; no.dataset.cambioBrlOficial=String(valor);
+        no.setAttribute('aria-label',texto);
+        no.classList.add('valor-duas-moedas');
+        const partes=texto.split(' · ');
+        const oficial=document.createElement('span');oficial.textContent=partes[0];
+        const secundario=document.createElement('small');secundario.textContent=partes[1]||'';secundario.hidden=!partes[1];
+        no.replaceChildren(oficial,secundario);
+    }
     function textosPublicados(raiz=document.body) {
+        raiz.querySelectorAll('[data-cambio-brl-oficial]').forEach(no=>preencherPar(no,Number(no.dataset.cambioBrlOficial)));
         const walker=document.createTreeWalker(raiz,NodeFilter.SHOW_TEXT);
         const nos=[]; while(walker.nextNode()) nos.push(walker.currentNode);
         for(const no of nos) {
-            if (no.parentElement?.closest('script,style,input,textarea,select,option,#cambio-estado')) continue;
+            if (no.parentElement?.closest('script,style,input,textarea,select,option,#cambio-estado,[data-moeda-contratual],[data-cambio-brl-oficial]')) continue;
             const salvo=valoresOriginais.get(no);
-            const texto=salvo && no.textContent===salvo.exibido ? salvo.original : no.textContent;
+            let texto=salvo && no.textContent===salvo.exibido ? salvo.original : no.textContent;
+            texto=texto.replace(/(-?R\$\s*-?[\d.]+,\d{2})\s*·\s*-?(?:US\$|USD|EUR|GBP|JPY|CHF|CAD|AUD|CNY|€|£|JP¥|¥|CA\$|AU\$|CN¥)\s*-?[\d.]+,\d{2}/g,'$1');
             if (!/R\$\s*-?[\d.]+,\d{2}/.test(texto)) continue;
             const exibido=texto.replace(/(-?)R\$\s*(-?)([\d.]+,\d{2})/g,(_,sinal,neg,numero)=>exibir(Number(numero.replace(/\./g,'').replace(',','.'))*(sinal||neg?-1:1)));
             valoresOriginais.set(no,{original:texto,exibido});
             if(no.textContent!==exibido) no.textContent=exibido;
+            const inteiro=texto.match(/^(-?)R\$\s*(-?)([\d.]+,\d{2})$/);
+            if(inteiro && no.parentElement?.childNodes.length===1 && ['STRONG','TD'].includes(no.parentElement.tagName)) {
+                preencherPar(no.parentElement,Number(inteiro[3].replace(/\./g,'').replace(',','.'))*(inteiro[1]||inteiro[2]?-1:1));
+            }
         }
     }
     function reapresentar() {
@@ -39,6 +72,14 @@ const CambioUI = (() => {
     }
     function estado(texto,erro=false) {
         const no=document.getElementById('cambio-estado');no.textContent=texto;no.classList.toggle('cambio-erro',erro);
+    }
+    function atualizarEstado() {
+        const ref=referenciaVisual();
+        if(atual.moeda==='BRL') {estado('Valores oficiais em reais');return;}
+        const modo=`Real oficial + ${ref.moeda}`;
+        if(!(Number(ref.taxa_brl)>0)) {estado(`Real oficial · informe a cotação contratual para exibir ${ref.moeda}`);return;}
+        estado(ref.contratual ? `${modo} · 1 ${ref.moeda} = R$ ${Number(ref.taxa_brl).toLocaleString('pt-BR',{maximumFractionDigits:12})} · cotação contratual fixa`
+            : `${modo} · 1 ${ref.moeda} = R$ ${Number(ref.taxa_brl).toLocaleString('pt-BR',{maximumFractionDigits:6})} · ${new Date(ref.data).toLocaleString('pt-BR')} · ${ref.fonte||'API de câmbio'}${ref.referencia_anterior?' · referência anterior':''}`);
     }
     async function selecionar(moeda) {
         const minhaVersao=++versao;
@@ -76,7 +117,7 @@ const CambioUI = (() => {
             localStorage.setItem('simulador.moeda',moeda);
             seletor.value=moeda;
             reapresentar();
-            estado(moeda==='BRL'?'Valores em reais':`1 ${moeda} = R$ ${Number(atual.taxa_brl).toLocaleString('pt-BR',{maximumFractionDigits:6})} · ${new Date(atual.data).toLocaleString('pt-BR')} · ${atual.fonte || 'Fonte não informada'}${atual.referencia_anterior?' · cotação de referência anterior':''}`);
+            atualizarEstado();
         } catch(erro) {
             seletor.value=atual.moeda;
             estado(`${erro.message} Moeda mantida: ${atual.moeda}.`,true);
@@ -85,10 +126,16 @@ const CambioUI = (() => {
     document.addEventListener('DOMContentLoaded',()=>{
         document.getElementById('moeda-global').addEventListener('change',e=>selecionar(e.target.value));
         document.getElementById('cambio-atualizar').addEventListener('click',()=>selecionar(atual.moeda));
+        document.getElementById('form-simulacao').addEventListener('input',e=>{
+            if(['operacao-cotacao-contrato','operacao-moeda-contrato','operacao-indexador'].includes(e.target.id)) {
+                queueMicrotask(()=>{reapresentar();atualizarEstado();});
+            }
+        });
+        atualizarEstado();
         let marcada=false;
         new MutationObserver(()=>{if(marcada)return;marcada=true;queueMicrotask(()=>{marcada=false;rotulos();textosPublicados();});}).observe(document.body,{childList:true,subtree:true,characterData:true});
         const salva=localStorage.getItem('simulador.moeda');
         if(salva && salva!=='BRL') selecionar(salva);
     });
-    return {formatar:exibir,simbolo,selecionar,referencia:()=>({...atual}),converterVisual:valor=>Number(valor)/Number(atual.taxa_brl)};
+    return {formatar:exibir,simbolo,selecionar,referencia:()=>({...atual}),converterVisual:valor=>Number(valor),simboloVisual:()=>'R$',referenciaVisual:()=>({...referenciaVisual()})};
 })();

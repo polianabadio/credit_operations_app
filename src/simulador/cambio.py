@@ -110,6 +110,26 @@ def converter_valores(valores, origem_id, destino_id):
 
 def entrada_em_reais(entrada):
     copia = dict(entrada)
+    if copia.get('indexador') == 'CAMBIAL':
+        moeda = copia.get('moeda_contrato')
+        if moeda not in MOEDAS or moeda == 'BRL':
+            raise ValueError('Escolha a moeda estrangeira do contrato.')
+        taxa = decimal_valido(copia.get('cotacao_contrato'))
+        if taxa <= 0:
+            raise ValueError('Informe uma cotação contratual positiva em reais por unidade da moeda.')
+        valor_original = decimal_valido(copia['valor'])
+        with localcontext() as contexto:
+            contexto.prec = 50
+            copia['valor'] = str((valor_original * taxa).quantize(Decimal('.01'), rounding=ROUND_HALF_UP))
+            if 'liberacoes' in copia:
+                copia['liberacoes'] = {ano: str((decimal_valido(v) * taxa).quantize(Decimal('.01'), rounding=ROUND_HALF_UP))
+                                      for ano, v in copia['liberacoes'].items()}
+        copia.pop('valor_base_brl', None); copia.pop('cotacao_id', None)
+        ref = {'moeda': moeda, 'taxa_brl': str(taxa), 'valor_original': str(valor_original),
+               'valor_brl': copia['valor'], 'fonte': 'Cotação contratual informada pelo usuário',
+               'data': None, 'constante': True,
+               'id': sha256(f'manual:{moeda}:{taxa}'.encode()).hexdigest()}
+        return copia, ref
     ref = referencia(copia.pop('cotacao_id', None))
     if ref['moeda'] == 'BRL':
         return copia, ref

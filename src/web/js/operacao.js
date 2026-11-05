@@ -1,3 +1,82 @@
+let referenciaTaxaIndexador = null;
+let versaoConsultaIndexador = 0;
+let tipoTaxaAnterior = null;
+let operacaoEraCambial = false;
+function atualizarPrazoTotal() {
+    const carencia = document.getElementById('tlp-carencia');
+    const amortizacao = document.getElementById('operacao-amortizacao');
+    const total = document.getElementById('tlp-prazo');
+    const soma = Number(carencia.value) + Number(amortizacao.value);
+    total.value = carencia.value !== '' && amortizacao.value !== '' && Number.isInteger(soma) ? String(soma) : '';
+    total.setCustomValidity(soma > 600 ? 'A soma dos prazos deve ser de no máximo 600 meses.' : '');
+}
+function decimalCotacaoContratual(texto) {
+    texto = texto.trim().replace(/\s/g, '');
+    if (texto.includes(',')) texto = texto.replace(/\./g, '').replace(',', '.');
+    if (!/^\d+(?:\.\d{1,12})?$/.test(texto) || !(Number(texto) > 0)) throw new Error('Informe a cotação contratual em reais por unidade da moeda.');
+    return texto;
+}
+function indexadorDeJuros() {
+    const indexador = document.getElementById('operacao-indexador').value;
+    if (['CDI','SELIC','TLP','SOFR'].includes(indexador)) return indexador;
+    return indexador === 'CAMBIAL' && document.getElementById('operacao-juros-cambial').value === 'SOFR' ? 'SOFR' : null;
+}
+function atualizarRotuloMoedaContrato() {
+    const cambial = document.getElementById('operacao-indexador').value === 'CAMBIAL';
+    const moeda = cambial ? document.getElementById('operacao-moeda-contrato').value : (typeof CambioUI !== 'undefined' ? CambioUI.referencia().moeda : 'BRL');
+    document.querySelector('label[for="valor-requisitado"]').textContent = `Valor do empréstimo (${moeda === 'BRL' ? 'R$' : moeda})`;
+    if (cambial) document.getElementById('valor-requisitado').placeholder = `${moeda} 0,00`;
+}
+function atualizarIndexadorOperacao(consultar) {
+    const tipo = document.getElementById('operacao-indexador').value;
+    const cambial = tipo === 'CAMBIAL';
+    if (cambial !== operacaoEraCambial) {
+        const valor = document.getElementById('valor-requisitado');
+        valor.value = ''; delete valor.dataset.cambioBrl; delete valor.dataset.cambioExibido;
+        operacaoEraCambial = cambial;
+    }
+    for (const id of ['operacao-moeda-campo','operacao-cotacao-campo','operacao-juros-campo']) document.getElementById(id).hidden = !cambial;
+    const taxa = indexadorDeJuros();
+    document.getElementById('operacao-taxa-campo').hidden = !taxa;
+    if (taxa !== tipoTaxaAnterior) {
+        versaoConsultaIndexador++;
+        referenciaTaxaIndexador = null;
+        document.getElementById('operacao-taxa-indexador').value = '';
+        document.getElementById('operacao-taxa-fonte').textContent = '';
+        if (taxa) document.getElementById('tlp-prefixada').value = '0';
+        tipoTaxaAnterior = taxa;
+    }
+    document.querySelector('label[for="operacao-taxa-indexador"]').textContent = taxa === 'TLP' ? 'Parcela fixa TLP · Jm (% ao ano)' : `${taxa === 'SOFR' ? 'SOFR overnight' : taxa === 'SELIC' ? 'Selic' : taxa || 'Indexador'} (% ao ano)`;
+    document.querySelector('label[for="tlp-prefixada"]').textContent = taxa ? 'Taxa fixa adicional (% ao ano)' : 'Taxa fixa da proposta (% ao ano)';
+    document.getElementById('operacao-premissas-indexador').textContent = tipo === 'IPCA' || tipo === 'TLP'
+        ? 'IPCA mensal publicado; competências sem publicação usam zero. Taxas fixas e spread em 252 dias úteis. Na TLP, a parcela Jm selecionada fica fixa.'
+        : taxa === 'SOFR' ? 'Cenário com SOFR overnight constante, taxa fixa e spread somados; juros simples em dias corridos, base 360. Não é Term SOFR de seis meses.'
+        : 'Cenário com taxas anuais constantes, composição dos fatores em 252 dias úteis e calendário FCL.';
+    atualizarRotuloMoedaContrato();
+    if (consultar && taxa) consultarTaxaOperacao();
+}
+async function consultarTaxaOperacao() {
+    const tipo = indexadorDeJuros(); if (!tipo) return;
+    const versao = ++versaoConsultaIndexador;
+    const entrada = document.getElementById('operacao-taxa-indexador');
+    const valorAnterior = entrada.value;
+    const mensagem = document.getElementById('operacao-taxa-fonte');
+    mensagem.textContent = 'Consultando taxa…';
+    try {
+        const r = await eel.obter_taxa_indexador_py(tipo)();
+        if (versao !== versaoConsultaIndexador || tipo !== indexadorDeJuros()) return;
+        if (r.status !== 'sucesso' || !r.taxa) throw new Error(r.mensagem || 'Taxa indisponível. Informe manualmente.');
+        // Não substituir uma edição feita enquanto a consulta estava em andamento.
+        if (entrada.value !== valorAnterior) { mensagem.textContent = 'Taxa informada manualmente.'; return; }
+        referenciaTaxaIndexador = r.taxa;
+        entrada.value = r.taxa.valor;
+        mensagem.textContent = `${r.taxa.fonte} · ${r.taxa.data.split('-').reverse().join('/')} · editável`;
+        entrada.dispatchEvent(new Event('input', {bubbles:true}));
+    } catch (erro) {
+        if (versao === versaoConsultaIndexador) mensagem.textContent = erro.message;
+    }
+}
+
 /* Contexto único da operação. As avaliações mantêm apenas seus dados específicos. */
 let revisaoOperacao = 0;
 let servicoInformado = false;
@@ -52,14 +131,28 @@ function obterOperacaoCompartilhada() {
 }
 
 function obterCondicoesOperacao() {
+    atualizarPrazoTotal();
     const comum = obterOperacaoCompartilhada();
     const entrada = {...comum, tipo_liberacao: document.getElementById('operacao-tipo-liberacao').value,
         data_liberacao: document.getElementById('operacao-data-liberacao').value,
-        fator: document.getElementById('fator-rcl').value};
-    if (typeof CambioUI !== 'undefined') {
+        fator: document.getElementById('fator-rcl').value,
+        indexador: document.getElementById('operacao-indexador').value,
+        amortizacao_meses: document.getElementById('operacao-amortizacao').value};
+    if (entrada.indexador === 'CAMBIAL') {
+        entrada.moeda_contrato = document.getElementById('operacao-moeda-contrato').value;
+        entrada.cotacao_contrato = decimalCotacaoContratual(document.getElementById('operacao-cotacao-contrato').value);
+        entrada.referencia_juros_cambial = document.getElementById('operacao-juros-cambial').value;
+    } else if (typeof CambioUI !== 'undefined') {
         entrada.cotacao_id = CambioUI.referencia().id;
         const campo = document.getElementById('valor-requisitado');
         if (campo.dataset.cambioExibido === campo.value && campo.dataset.cambioBrl) entrada.valor_base_brl = campo.dataset.cambioBrl;
+    }
+    const tipoTaxa = indexadorDeJuros();
+    if (tipoTaxa) {
+        const campoTaxa = document.getElementById('operacao-taxa-indexador');
+        if (campoTaxa.value === '' || !campoTaxa.validity.valid) throw new Error('Consulte ou informe a taxa do indexador.');
+        entrada.taxa_indexador = campoTaxa.value;
+        entrada.referencia_indexador_id = referenciaTaxaIndexador?.id ?? null;
     }
     if (!entrada.data_liberacao) throw new Error('Informe a data prevista de recebimento.');
     for (const [nome, id] of Object.entries({prazo_meses:'tlp-prazo', carencia_meses:'tlp-carencia', prefixada:'tlp-prefixada', spread:'tlp-spread'})) {
@@ -89,7 +182,7 @@ function montarLiberacoesCompartilhadas() {
     if (unica) return;
     for (let exercicio = ano; exercicio <= fim; exercicio++) {
         const label = document.createElement('label');
-        label.textContent = `Liberação de ${exercicio} (R$)`;
+        label.textContent = `Liberação de ${exercicio} (${document.getElementById('operacao-indexador').value === 'CAMBIAL' ? document.getElementById('operacao-moeda-contrato').value : 'R$'})`;
         const campo = document.createElement('input');
         campo.type = 'number'; campo.min = '0'; campo.step = '0.01';
         campo.dataset.ano = exercicio;
@@ -126,10 +219,26 @@ function montarFluxoDaOperacao() {
     atualizarContextoOperacao();
 }
 
+function liberacaoEmReaisParaExibicao(comum, ano) {
+    const calculado=basesOperacaoCalculada.find(item=>item.ano===ano)?.liberacaoNovaOperacao;
+    if(calculado!=null) return calculado;
+    let taxa=typeof CambioUI!=='undefined'?Number(CambioUI.referencia().taxa_brl):1;
+    if(document.getElementById('operacao-indexador').value==='CAMBIAL') {
+        try {taxa=Number(decimalCotacaoContratual(document.getElementById('operacao-cotacao-contrato').value));}
+        catch(_){return null;}
+    }
+    return comum.liberacoes[ano]*taxa;
+}
+
 function atualizarContextoOperacao() {
     let comum;
     try { comum = obterOperacaoCompartilhada(); } catch (_) { return; }
-    document.querySelectorAll('.operacao-liberacao-contexto').forEach(no => { no.textContent = `Liberação deste empréstimo: ${formatarMoeda(comum.liberacoes[Number(no.dataset.ano)])} · RCL projetada: ${basesOperacaoCalculada.find(item => item.ano === Number(no.dataset.ano))?.rclProjetada != null ? formatarMoeda(basesOperacaoCalculada.find(item => item.ano === Number(no.dataset.ano)).rclProjetada) : 'indisponível; atualize as avaliações'}`; });
+    document.querySelectorAll('.operacao-liberacao-contexto').forEach(no => {
+        const ano=Number(no.dataset.ano);
+        const valor=liberacaoEmReaisParaExibicao(comum,ano);
+        const rcl=basesOperacaoCalculada.find(item=>item.ano===ano)?.rclProjetada;
+        no.textContent=`Liberação deste empréstimo: ${valor==null?'informe a cotação contratual':formatarMoeda(valor)} · RCL projetada: ${rcl!=null?formatarMoeda(rcl):'indisponível; atualize as avaliações'}`;
+    });
 }
 
 function obterEntradaFluxoCompartilhada() {
@@ -186,6 +295,21 @@ function fecharModalAvaliacao(tipo) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('tlp-carencia').addEventListener('input', atualizarPrazoTotal);
+    document.getElementById('operacao-amortizacao').addEventListener('input', atualizarPrazoTotal);
+    document.getElementById('operacao-indexador').addEventListener('change', () => atualizarIndexadorOperacao(true));
+    document.getElementById('operacao-juros-cambial').addEventListener('change', () => atualizarIndexadorOperacao(true));
+    document.getElementById('operacao-moeda-contrato').addEventListener('change', () => {
+        document.getElementById('valor-requisitado').value = '';
+        document.getElementById('operacao-cotacao-contrato').value = '';
+        atualizarRotuloMoedaContrato(); montarLiberacoesCompartilhadas();
+    });
+    document.getElementById('operacao-atualizar-taxa').addEventListener('click', consultarTaxaOperacao);
+    document.getElementById('operacao-taxa-indexador').addEventListener('input', () => {
+        const valor = document.getElementById('operacao-taxa-indexador').value;
+        if (!referenciaTaxaIndexador || Number(valor) !== Number(referenciaTaxaIndexador.valor)) document.getElementById('operacao-taxa-fonte').textContent = 'Taxa informada manualmente · constante nesta simulação';
+    });
+    atualizarIndexadorOperacao(false);
     document.getElementById('form-simulacao').addEventListener('input', () => {
         revisaoOperacao++;
         invalidarServicoTlp();

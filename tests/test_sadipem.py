@@ -153,3 +153,31 @@ def test_fluxo_vazio_sem_declaracao_nao_vira_zero():
     ], client=FakeClient())
     assert resultado[0]['cenario']['liberacoesContratadas'] is None
     assert resultado[0]['cenario']['mga'] is None
+
+
+def test_cache_compartilhado_reutiliza_resposta_entre_clientes_e_nao_guarda_paginacao_incompleta(tmp_path,requests_mock):
+    url='https://fonte/pvl'
+    requests_mock.get(url,json={'items':[{'id_pleito':1}],'hasMore':False})
+    a=SadipemClient(base_url='https://fonte',cache_dir=tmp_path,min_interval=0)
+    b=SadipemClient(base_url='https://fonte',cache_dir=tmp_path,min_interval=0)
+    assert a.listar('pvl')==b.listar('pvl')==[{'id_pleito':1}]
+    assert requests_mock.call_count==1
+    registro=next((tmp_path/'sadipem').glob('*.json'))
+    import json,time
+    registro.write_text(json.dumps({'consultado_em':time.time()-7200,'items':[]}),encoding='utf-8')
+    c=SadipemClient(base_url='https://fonte',cache_dir=tmp_path,min_interval=0)
+    requests_mock.get(url,[{'json':{'items':[{'id_pleito':2}],'hasMore':True}},
+                           {'json':{'items':[],'hasMore':True}}])
+    import pytest
+    from src.simulador.sadipem import SadipemApiError
+    with pytest.raises(SadipemApiError):c.listar('pvl')
+    assert json.loads(registro.read_text(encoding='utf-8'))['items']==[]
+
+
+def test_dashboard_nao_consulta_pvls_antigos_sem_uso_na_tela():
+    antigo={**PVL_ATUAL,'id_pleito':27067,'data_status':'12/03/2018','data_protocolo':'2018-03-12T10:45:53Z'}
+    cliente=FakeClient(pvls=[PVL_ATUAL,antigo])
+    resultado=obter_comprometimento_goias(2026,client=cliente,incluir_historico=False)
+    assert resultado['liberacoesContratadasSadipem'] is None
+    assert resultado['ultimaReferenciaHistorica'] is None
+    assert len(cliente.chamadas)==3

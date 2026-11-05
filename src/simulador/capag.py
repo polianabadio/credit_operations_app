@@ -9,7 +9,7 @@ import re
 import unicodedata
 
 import requests
-from sqlalchemy.orm import Session
+from .cache_json import Session, garantir_tabela
 
 from .database_models import CapagPublicada, CapagIndicadores, CapagComplemento, CapagHistorico, CapagHistoricoIndicadores, db
 from .logger import log
@@ -103,8 +103,8 @@ def extrair_nota_historica(conteudo):
 
 def atualizar_historico_capag(engine, pacote):
     """Cache por publicação; falhas não apagam notas nem rebaixam uma revisão salva."""
-    CapagHistorico.__table__.create(engine, checkfirst=True)
-    CapagHistoricoIndicadores.__table__.create(engine, checkfirst=True)
+    garantir_tabela(CapagHistorico, engine)
+    garantir_tabela(CapagHistoricoIndicadores, engine)
     recursos = {}
     for recurso in pacote.get('resources', []):
         nome = _normalizar(recurso.get('name', ''))
@@ -222,9 +222,9 @@ def atualizar_capag():
     base = re.search(r'ANO\s*BASE\s*(20\d{2})', _normalizar(descricao))
     ano_base = int(base.group(1)) if base else None
     engine = db.session.get_bind()
-    CapagPublicada.__table__.create(engine, checkfirst=True)
-    CapagIndicadores.__table__.create(engine, checkfirst=True)
-    CapagComplemento.__table__.create(engine, checkfirst=True)
+    garantir_tabela(CapagPublicada, engine)
+    garantir_tabela(CapagIndicadores, engine)
+    garantir_tabela(CapagComplemento, engine)
     with Session(bind=engine) as sessao:
         anterior = sessao.get(CapagIndicadores, 'GO')
         if anterior is not None and anterior.ano_publicacao > ano:
@@ -254,11 +254,11 @@ def atualizar_capag():
 
 def obter_capag():
     engine = db.session.get_bind()
-    CapagPublicada.__table__.create(engine, checkfirst=True)
-    CapagIndicadores.__table__.create(engine, checkfirst=True)
-    CapagComplemento.__table__.create(engine, checkfirst=True)
-    CapagHistorico.__table__.create(engine, checkfirst=True)
-    CapagHistoricoIndicadores.__table__.create(engine, checkfirst=True)
+    garantir_tabela(CapagPublicada, engine)
+    garantir_tabela(CapagIndicadores, engine)
+    garantir_tabela(CapagComplemento, engine)
+    garantir_tabela(CapagHistorico, engine)
+    garantir_tabela(CapagHistoricoIndicadores, engine)
     linha = db.session.query(CapagPublicada).filter(CapagPublicada.uf == 'GO').first()
     if linha is None:
         return None

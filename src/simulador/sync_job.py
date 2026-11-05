@@ -26,11 +26,13 @@ def _atualizar_capag_em_paralelo():
         log.warning('CAPAG não pôde ser atualizada.', details=str(exc))
 
 
-def _executar():
+def _executar(automatico=False):
     try:
         tarefa_capag = Thread(target=_atualizar_capag_em_paralelo, daemon=True)
         tarefa_capag.start()
-        for escopo, label in [('now', 'Ano atual'), ('past', 'Histórico')]:
+        escopos = [('now', 'Ano atual')]
+        if not automatico: escopos.append(('past', 'Histórico'))
+        for escopo, label in escopos:
             for nome, atualizar in [('RREO', atualizar_operacoes_rreo), ('RGF', atualizar_operacoes_rgf)]:
                 with _lock:
                     _estado.update(etapa=f'{label} — {nome}', concluidas=0, total=0)
@@ -44,10 +46,12 @@ def _executar():
                             'periodo': falha.get('nr_periodo'),
                             'anexo': falha.get('no_anexo'),
                             'poder': falha.get('co_poder'),
-                            'motivo': 'Não foi possível obter estes dados na fonte oficial. Tente atualizar novamente mais tarde.',
+                            'motivo': 'Não foi possível concluir a atualização desses dados. Tente novamente mais tarde.',
                         })
                     _estado['detalhes_falhas'] = _estado['detalhes_falhas'][:3]
-        tarefa_capag.join()
+        if not automatico:
+            with _lock: _estado.update(etapa='CAPAG', concluidas=0, total=0)
+            tarefa_capag.join()
     except Exception as exc:
         log.error('Falha na sincronização.', details=str(exc))
         with _lock:
@@ -60,11 +64,12 @@ def _executar():
             _estado['running'] = False
 
 
-def iniciar_atualizacao():
+def iniciar_atualizacao(automatico=False):
     with _lock:
         if _estado['running']:
             return {**_estado, 'detalhes_falhas': [dict(falha) for falha in _estado['detalhes_falhas']]}
         _estado.update(running=True, etapa='Iniciando', concluidas=0, total=0,
                        falhas=0, detalhes_falhas=[])
-        Thread(target=_executar, daemon=True).start()
+        tarefa = (lambda: _executar(automatico=True)) if automatico else _executar
+        Thread(target=tarefa, daemon=True).start()
         return {**_estado, 'detalhes_falhas': []}

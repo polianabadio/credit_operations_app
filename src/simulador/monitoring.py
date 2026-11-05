@@ -1,64 +1,41 @@
 # src/simulador/monitoring.py
 """
-Módulo de Monitoramento do Sistema.
+MÃ³dulo de Monitoramento do Sistema.
 
-Fornece funções para verificar o status dos serviços (como o BD)
-e o uso de recursos do sistema (CPU, Memória).
+Fornece funÃ§Ãµes para verificar o status dos serviÃ§os (como o BD)
+e o uso de recursos do sistema (CPU, MemÃ³ria).
 """
 
 import psutil
 import os
-from sqlalchemy import create_engine, text
-from sqlalchemy.exc import OperationalError
 
-from .config import config_manager
 from .logger import log
 
-# Obtém o processo atual da aplicação
+# ObtÃ©m o processo atual da aplicaÃ§Ã£o
 processo_atual = psutil.Process(os.getpid())
 
 def check_database_connection():
-    """
-    Verifica ativamente a conexão com o banco de dados configurado.
-    Retorna um dicionário com o status.
-    """
+    """Contrato de monitoramento legado; verifica o cache, nÃ£o um banco."""
+    from .database_models import db
     try:
-        # Pega a URL de conexão atual
-        url = config_manager.get_db_engine_url()
-        engine = create_engine(url)
-        
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-        
-        return {
-            "status": "Online",
-            "mensagem": "Conexão com o banco de dados bem-sucedida."
-        }
-    except OperationalError as oe:
-        log.warning("Monitoramento: Falha na conexão com o banco de dados.", details=str(oe.orig))
-        return {
-            "status": "Offline",
-            "mensagem": "Falha na conexão. Verifique as configurações ou o status do servidor."
-        }
-    except Exception as e:
-        log.error("Monitoramento: Erro inesperado ao verificar o banco de dados.", details=str(e))
-        return {
-            "status": "Erro",
-            "mensagem": "Não foi possível verificar o acesso aos dados. Confira as configurações do banco e tente novamente."
-        }
+        db.session.get_bind().ler()
+        return {'status': 'Online', 'mensagem': 'Cache JSON disponÃ­vel.'}
+    except Exception:
+        return {'status': 'Offline', 'mensagem': 'NÃ£o foi possÃ­vel ler o cache JSON compartilhado.'}
+
 
 def get_resource_usage():
     """
-    Obtém o uso de CPU e Memória do processo atual da aplicação.
+    ObtÃ©m o uso de CPU e MemÃ³ria do processo atual da aplicaÃ§Ã£o.
     """
     try:
-        # Uso de Memória
+        # Uso de MemÃ³ria
         mem_info = processo_atual.memory_info()
         mem_mb = mem_info.rss / (1024 * 1024)  # Converte de bytes para Megabytes
         
         # Uso de CPU
         # O primeiro chamado de cpu_percent(interval=None) retorna 0.0
-        # Recomenda-se chamar com um pequeno intervalo ou deixar que o frontend calcule a média
+        # Recomenda-se chamar com um pequeno intervalo ou deixar que o frontend calcule a mÃ©dia
         cpu_percent = processo_atual.cpu_percent(interval=None)
         
         return {
@@ -74,7 +51,7 @@ def get_resource_usage():
 
 def get_system_status():
     """
-    Agrega todas as verificações de status em um único objeto.
+    Agrega todas as verificaÃ§Ãµes de status em um Ãºnico objeto.
     """
     return {
         "database": check_database_connection(),

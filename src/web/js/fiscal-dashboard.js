@@ -157,17 +157,23 @@ function linhaMargemPublica(dado, ano = dado.fluxo?.ano) {
     return Number.isFinite(linha?.margemEstimada) ? {...linha, referenciaPublica: true} : null;
 }
 
+function linhaProjecaoRcl(dado) {
+    if (dado.fluxo?.positionOnly !== true || dado.fluxo.parameterValidated !== true) return null;
+    return dado.fluxo.rows?.find(item => item.ano === dado.fluxo.ano) || null;
+}
+
 function criarDetalheMargemCredito(dado) {
     const secao = elementoFiscal('section', 'fluxo-limite-parte margem-credito');
     const atual = linhaMargemCredito(dado) || linhaMargemPublica(dado);
+    const projecao = {...linhaProjecaoRcl(dado), ...atual};
     const moeda = valor => valor == null ? 'Não disponível' : formatarMoeda(valor);
     const resumo = elementoFiscal('div', 'margem-resumo-visual');
     const principal = elementoFiscal('div', `margem-valor-principal${atual?.margemEstimada < 0 ? ' margem-negativa' : ''}`);
     principal.append(elementoFiscal('span', '', atual?.referenciaPublica ? 'Margem segundo o PVL' : 'Margem antes da nova operação'),
-        elementoFiscal('strong', '', atual ? moeda(atual.margemEstimada) : 'Não determinada'),
+        elementoFiscal('strong', '', atual ? moeda(atual.margemEstimada) : dado.margemPublica?.status === 'Consultando' ? 'Consultando SADIPEM…' : 'Não determinada'),
         elementoFiscal('span', 'limite-referencia-curta', `Exercício ${atual?.ano ?? dado.fluxo?.ano ?? 'não informado'} · antes da nova operação`));
     const componentes = elementoFiscal('div', 'margem-componentes');
-    for (const [rotulo, valor] of [['Teto anual (16% da RCL)', atual?.tetoAnual], ['Liberações existentes incluídas', atual?.scheduledDisbursements]]) {
+    for (const [rotulo, valor] of [['RCL projetada', projecao?.rclProjetada], ['Teto anual (16% da RCL)', projecao?.tetoAnual], ['Liberações existentes incluídas', atual?.scheduledDisbursements]]) {
         const item = elementoFiscal('div');
         item.append(elementoFiscal('span', '', rotulo), elementoFiscal('strong', '', moeda(valor)));
         componentes.appendChild(item);
@@ -177,7 +183,7 @@ function criarDetalheMargemCredito(dado) {
     secao.appendChild(elementoFiscal('p', 'limite-ressalva', atual?.referenciaPublica
         ? 'Referência parcial do PVL. A cobertura de todas as operações não está confirmada.'
         : atual ? 'A margem é anual; não representa o valor máximo de um contrato.'
-        : 'Faltam dados para determinar a margem. Ausência de informação não significa zero.'));
+        : dado.margemPublica?.status === 'Consultando' ? 'Consultando a fonte oficial. Os demais indicadores já estão disponíveis.' : 'Faltam dados para determinar a margem. Ausência de informação não significa zero.'));
     if (atual?.margemEstimada < 0) secao.appendChild(elementoFiscal('p', 'limite-excesso', 'As liberações incluídas superam o teto anual.'));
     const memoria = elementoFiscal('details', 'limite-memoria');
     memoria.appendChild(elementoFiscal('summary', '', 'Ver cálculo, fontes e cobertura'));
@@ -235,7 +241,11 @@ function criarResumoLimite(config, dado) {
         card.append(principal,elementoFiscal('p','limite-grafico-contexto', atual?.referenciaPublica
             ? 'Referência parcial das operações informadas nesse PVL.' : atual
             ? 'Saldo anual antes da nova operação.' : 'Aguardando referência suficiente para calcular a margem.'));
-        card.appendChild(elementoFiscal('p','limite-grafico-teto',`Limite anual: ${formatarPercentual(dado.limite)} da RCL projetada`));
+        const projecao = {...linhaProjecaoRcl(dado), ...atual};
+        if (Number.isFinite(projecao?.rclProjetada)) card.appendChild(elementoFiscal('p','limite-grafico-teto', `RCL projetada: ${formatarMoeda(projecao.rclProjetada)}`));
+        card.appendChild(elementoFiscal('p','limite-grafico-teto', Number.isFinite(projecao?.tetoAnual)
+            ? `Teto anual (${formatarPercentual(dado.limite)}): ${formatarMoeda(projecao.tetoAnual)}`
+            : `Limite anual: ${formatarPercentual(dado.limite)} da RCL projetada`));
         if (atual && atual.margemEstimada < 0) card.appendChild(elementoFiscal('span','limite-grafico-aviso','Saldo negativo'));
         return card;
     }
@@ -386,8 +396,8 @@ function criarHistoricoDividaRcl(historico) {
         if (texto !== undefined) el.textContent=texto;
         return el;
     };
-    const svg = criar('svg',{viewBox:`0 0 ${largura} 365`,class:'divida-historico-svg',role:'group','aria-label':`Colunas de dívida bruta e RCL em ${typeof CambioUI !== 'undefined' ? CambioUI.referencia().moeda : 'BRL'}, eixo esquerdo. Linha DCL/RCL em percentual, eixo direito. Selecione um ano para ver os valores exatos.`});
-    svg.appendChild(criar('text',{x:inicio,y:23,class:'divida-historico-eixo'},`${typeof CambioUI !== 'undefined' ? CambioUI.simbolo() : 'R$'}${unidade===1e9?' bilhões':unidade===1e6?' milhões':''}`));
+    const svg = criar('svg',{viewBox:`0 0 ${largura} 365`,class:'divida-historico-svg',role:'group','aria-label':`Colunas de dívida bruta e RCL em BRL (real oficial)${typeof CambioUI !== 'undefined' && CambioUI.referencia().moeda !== 'BRL' ? `, com equivalências em ${CambioUI.referencia().moeda} nos detalhes` : ''}, eixo esquerdo. Linha DCL/RCL em percentual, eixo direito. Selecione um ano para ver os valores exatos.`});
+    svg.appendChild(criar('text',{x:inicio,y:23,class:'divida-historico-eixo'},`R$${unidade===1e9?' bilhões':unidade===1e6?' milhões':''}`));
     for (let i=0;i<=5;i++) {
         const valor=baixo+(alto-baixo)*i/5, py=y(valor);
         svg.append(criar('line',{x1:inicio,x2:fim,y1:py,y2:py,class:'divida-historico-grade'}),

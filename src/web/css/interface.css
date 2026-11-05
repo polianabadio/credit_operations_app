@@ -364,3 +364,18 @@ body > footer > div { font-size: 10px; color: #829087; }
 #cambio-estado.cambio-erro { color: #a02d2d; }
 .app-topbar:has(.cambio-global) { height: auto; min-height: 76px; padding-top: 8px; padding-bottom: 8px; }
 @media(max-width:600px) { .cambio-global { max-width: 76%; } .cambio-controles { gap: 4px; } .cambio-controles select { max-width: 135px; } .cambio-controles label { font-size: 0; } }
+
+#form-simulacao .simulacao-grade > [hidden] { display: none; }
+#form-simulacao input[readonly] { background: #f1f6f3; color: #245e47; }
+.indexador-controle { display:flex; align-items:center; gap:10px; min-width:0; }
+.indexador-controle input { width:100%; min-width:0; }
+.indexador-controle button { flex-shrink:0; }
+
+.valor-duas-moedas { display:inline-flex; flex-direction:column; gap:3px; max-width:100%; }
+td.valor-duas-moedas { display:table-cell; }
+td.valor-duas-moedas > span, td.valor-duas-moedas > small { display:block; }
+td.valor-duas-moedas > small { margin-top:3px; }
+.valor-duas-moedas > small { font-size:clamp(11px,.52em,17px); line-height:1.35; font-weight:500; color:#526c61; }
+.valor-duas-moedas > small[hidden] { display:none; }
+
+.valor-duas-moedas > span { min-width:0; overflow-wrap:anywhere; }

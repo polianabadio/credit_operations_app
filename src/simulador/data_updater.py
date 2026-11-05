@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from threading import Lock, local
 from time import monotonic, sleep
-from sqlalchemy.orm import Session
+from .cache_json import Session, garantir_tabela
 
 from .config import configurar_banco_dados
 from .database_models import RREO, RGF, db, SincronizacaoSiconfi
@@ -43,7 +43,7 @@ def _atualizar_dados_siconfi(modelo_db, endpoint, params_base, periodo_params, p
     """Busca todas as páginas e salva cada período em uma única transação."""
     sucessos, falhas, avisos = [], [], []
     engine = db.session.get_bind()
-    SincronizacaoSiconfi.__table__.create(engine, checkfirst=True)
+    garantir_tabela(SincronizacaoSiconfi, engine)
     agora = datetime.now()
     def chave_consulta(periodo):
         return json.dumps([endpoint, {**params_base, **periodo}], sort_keys=True)

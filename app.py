@@ -10,8 +10,8 @@ from src.simulador.sync_job import iniciar_atualizacao, status_atualizacao
 
 
 @eel.expose
-def iniciar_atualizacao_siconfi():
-    return iniciar_atualizacao()
+def iniciar_atualizacao_siconfi(automatico=False):
+    return iniciar_atualizacao(automatico=automatico is True)
 
 
 @eel.expose
@@ -21,7 +21,8 @@ def status_atualizacao_siconfi():
 # Módulos da nossa arquitetura
 from src.simulador.rule_engine import analisar_operacao
 from src.simulador.parametros_simulacao import obter_fator_projecao, salvar_fator_projecao, obter_taxa_salva
-from src.simulador.painel_fiscal import obter_painel_fiscal
+from src.simulador.painel_cache import obter_painel_fiscal_em_cache as obter_painel_fiscal
+from src.simulador.painel_cache import obter_anos_fiscais_em_cache
 from src.simulador.margem_publica import obter_margem_publica
 from src.simulador.caed_publico import obter_pagamentos_dashboard
 from src.simulador.mga_projection import obter_projecao
@@ -32,9 +33,6 @@ from src.simulador.logger import log
 from src.simulador.mensagens import mensagem_erro
 from src.simulador.monitoring import get_system_status
 
-from sqlalchemy import create_engine
-from sqlalchemy.exc import OperationalError
-from sqlalchemy import text
 
 # Módulos de configuração
 from src.simulador.config import (
@@ -47,70 +45,33 @@ from src.simulador.config import (
 criar_diretorios()
 
 if not configurar_banco_dados():
-    log.error("Falha na configuração do banco de dados. Encerrando aplicação.")
+    log.error("Falha ao abrir o cache JSON. Encerrando aplicação.")
     exit(1)
 
 # ========== FUNÇÕES DE CONFIGURAÇÃO EXPOSTAS ==========
 
 @eel.expose
+def consultar_versao_rede_py():
+    from src.simulador.versao_rede import consultar_versao_rede
+    return consultar_versao_rede()
+
+@eel.expose
 def get_db_config():
-    """Retorna a configuração atual do banco de dados para o frontend."""
-    log.info("Frontend solicitou a configuração atual do banco de dados.", modulo="app.py")
-    return config_manager.get_db_config()
+    """Contrato legado para a tela técnica; não há conexão SQL ativa."""
+    return {'type': 'json', 'path': str(db.session.get_bind().caminho)}
+
 
 @eel.expose
-def save_db_config(config_data: dict):
-    """Salva a nova configuração do banco de dados recebida do frontend."""
-    try:
-        log.info("Recebida nova configuração de banco de dados para salvar.", modulo="app.py")
-        config_manager.set_db_config(config_data)
-        log.success("Configuração do banco de dados salva com sucesso. É necessário reiniciar a aplicação.")
-        # É importante notar que a aplicação precisará ser reiniciada para usar a nova conexão.
-        return {'status': 'sucesso', 'mensagem': 'Configuração salva. Reinicie a aplicação para aplicá-la.'}
-    except Exception as e:
-        log.error("Falha ao salvar a configuração do banco de dados.", details=str(e))
-        return {'status': 'erro', 'mensagem': mensagem_erro(e)}
+def save_db_config(config_data):
+    return {'status': 'erro', 'mensagem': 'A aplicação usa cache JSON; não há banco para configurar.'}
+
 
 @eel.expose
-def test_db_connection(config_data: dict):
-    """Testa uma conexão de banco de dados com as configurações fornecidas."""
-    log.info("Testando conexão com o banco de dados...", modulo="app.py")
-    try:
-        # Lógica para construir a URL de teste (similar a get_db_engine_url)
-        db_type = config_data.get('type', 'sqlite')
-        if db_type == 'sqlite':
-            test_url = f"sqlite:///{get_asset_path(config_data.get('path'))}"
-        elif db_type == 'postgresql':
-            user = config_data.get('user', '')
-            password = config_data.get('password', '')
-            host = config_data.get('host', 'localhost')
-            port = config_data.get('port', '5432')
-            name = config_data.get('name', 'postgres')
-            test_url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{name}"
-        elif db_type == 'mysql':
-            user = config_data.get('user', 'root')
-            password = config_data.get('password', '')
-            host = config_data.get('host', 'localhost')
-            port = config_data.get('port', '3306')
-            name = config_data.get('name', 'mysql')
-            test_url = f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}"
-        # lógica para outros bancos +++
-        else:
-            raise ValueError(f"Tipo de banco de dados '{db_type}' desconhecido para teste.")
-        
-        log.info("Configuração de teste preparada.", modulo="app.py")
-        engine = create_engine(test_url)
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-        
-        log.success("Teste de conexão bem-sucedido.")
-        return {'status': 'sucesso', 'mensagem': 'Conexão bem-sucedida!'}
-    except OperationalError as oe:
-        log.warning("Teste de conexão falhou (OperationalError). Verifique as credenciais, host, porta e nome do banco.", details=str(oe.orig))
-        return {'status': 'erro', 'mensagem': f'Falha na conexão: Verifique as credenciais, host, porta e nome do banco.'}
-    except Exception as e:
-        log.error("Teste de conexão falhou (Exception).", details=str(e))
-        return {'status': 'erro', 'mensagem': 'Não foi possível acessar o banco de dados. Confira as configurações de acesso e tente novamente.'}
+def test_db_connection(config_data):
+    from src.simulador.monitoring import check_database_connection
+    estado = check_database_connection()
+    return {'status': 'sucesso' if estado['status'] == 'Online' else 'erro', 'mensagem': estado['mensagem']}
+
 
 # ========== FUNÇÃO DE MONITORAMENTO EXPOSTA ==========
 
@@ -134,8 +95,7 @@ def obter_dados_iniciais():
     try:
         log.info("Buscando dados iniciais para o frontend.", modulo="app.py", funcao="obter_dados_iniciais")
         # Busca todos os anos distintos presentes na tabela RREO
-        anos_query = db.session.query(RREO.exercicio).distinct().order_by(RREO.exercicio.desc()).all()
-        anos_disponiveis = [ano[0] for ano in anos_query]
+        anos_disponiveis = obter_anos_fiscais_em_cache()
         log.success(f"Anos disponíveis encontrados: {len(anos_disponiveis)}, Primeiro ano: {(anos_disponiveis[-1:])}, Último ano: {(anos_disponiveis[:1])}", modulo="app.py", funcao="obter_dados_iniciais", anos=anos_disponiveis)
         
         return {
@@ -147,10 +107,21 @@ def obter_dados_iniciais():
         return {"status": "erro", "mensagem": mensagem_erro(e), "anos_disponiveis": []}
 
 @eel.expose
+def obter_taxa_indexador_py(indexador):
+    from gevent import get_hub
+    from src.simulador.indexadores import consultar_taxa
+    try:
+        return {'status': 'sucesso', 'taxa': get_hub().threadpool.apply(consultar_taxa, (indexador,))}
+    except ValueError as exc:
+        return {'status': 'erro', 'mensagem': str(exc)}
+
+
+@eel.expose
 def obter_cotacao_py(moeda):
     from src.simulador.cambio import cotacao
     try:
-        return {'status': 'sucesso', 'cotacao': cotacao(moeda)}
+        from gevent import get_hub
+        return {'status': 'sucesso', 'cotacao': get_hub().threadpool.apply(cotacao, (moeda,))}
     except ValueError as exc:
         return {'status': 'erro', 'mensagem': str(exc)}
 
@@ -173,7 +144,7 @@ def obter_fator_projecao_py():
 def obter_painel_fiscal_py():
     try:
         painel = obter_painel_fiscal()
-        if painel.get('exercicio') is not None:
+        if painel.get('exercicio') is not None and (painel.get('fluxo_credito') or {}).get('positionOnly') is not True:
             painel['fluxo_credito'] = obter_projecao(painel)
         return {'status': 'sucesso', 'painel': painel}
     except Exception as exc:
@@ -182,17 +153,26 @@ def obter_painel_fiscal_py():
 
 
 @eel.expose
-def obter_comprometimento_sadipem_py():
+def obter_comprometimento_sadipem_py(detalhado=True):
+    # Requests é bloqueante: não executar a consulta no loop de eventos do Eel.
+    from gevent import get_hub
+    return get_hub().threadpool.apply(_consultar_comprometimento_sadipem, (detalhado,))
+
+
+def _consultar_comprometimento_sadipem(detalhado=True):
     """Compõe a referência pública do Dashboard; o cliente HTTP mantém cache."""
     painel = obter_painel_fiscal()
     ano = painel.get('exercicio')
     if ano is None:
         return {'status': 'erro', 'mensagem': 'Exercício fiscal não disponível.'}
-    painel['fluxo_credito'] = obter_projecao(painel)
+    if (painel.get('fluxo_credito') or {}).get('positionOnly') is not True:
+        painel['fluxo_credito'] = obter_projecao(painel)
     rcl = painel.get('rcl') or {}
-    sadipem = obter_comprometimento_goias(ano, rcl.get('valor'))
+    sadipem = (obter_comprometimento_goias(ano, rcl.get('valor')) if detalhado else
+               obter_comprometimento_goias(ano, rcl.get('valor'), incluir_historico=False))
     margem = obter_margem_publica(painel.get('fluxo_credito') or {}, sadipem)
-    pagamentos = obter_pagamentos_dashboard(ano, sadipem)
+    pagamentos = (obter_pagamentos_dashboard(ano, sadipem) if detalhado else
+                  {'status': 'Não solicitado', 'pagamentos': {}})
     return {'status': 'sucesso', 'sadipem': sadipem, 'margemPublica': margem,
             'pagamentosDivida': pagamentos}
 
@@ -200,7 +180,8 @@ def obter_comprometimento_sadipem_py():
 def _calcular_operacao_compartilhada(entrada):
     from src.simulador.cambio import entrada_em_reais
     entrada, cotacao_usada = entrada_em_reais(entrada)
-    from src.simulador.operacao import calcular_operacao
+    from src.simulador.operacao import calcular_operacao, normalizar_prazos
+    entrada = normalizar_prazos(entrada)
     from src.simulador.fluxo_tlp import montar_periodos
     from src.simulador.indices_publicos import obter_serie_ipca
     from src.simulador.data_access import obter_rcl_caed
@@ -209,7 +190,8 @@ def _calcular_operacao_compartilhada(entrada):
     referencia = entrada.get('data_referencia') or date.today().isoformat()
     rcl = obter_rcl_caed(int(entrada['ano']), referencia)
     fator = obter_fator_projecao(referencia)
-    dados = calcular_operacao(entrada, serie_ipca=obter_serie_ipca(periodos[0]['competencia_ipca']),
+    dados = calcular_operacao(entrada, serie_ipca=(obter_serie_ipca(periodos[0]['competencia_ipca'])
+                              if entrada.get('indexador', 'IPCA') in ('IPCA', 'TLP') else {}),
                               rcl_base=rcl['valor'] if rcl else None, referencia_rcl=rcl, fator_projecao=fator)
     dados['servico_input']['data_referencia'] = referencia
     from src.simulador.caed_publico import obter_pagamentos_caed, integrar_pagamentos_caed, obter_confirmacao
@@ -219,7 +201,8 @@ def _calcular_operacao_compartilhada(entrada):
     if confirmacao:
         dados['servico_input']['cobertura_demais'] = confirmacao
     dados['cotacao_entrada'] = cotacao_usada
-    dados['fluxo']['fonte_ipca'] = 'IBGE / Banco Central, série 433'
+    dados['fluxo']['fonte_ipca'] = 'IBGE / Banco Central, série 433' if entrada.get('indexador', 'IPCA') in ('IPCA', 'TLP') else None
+    dados['fluxo']['cotacao_entrada'] = cotacao_usada
     dados['fluxo']['consultado_em'] = datetime.now().isoformat(timespec='seconds')
     return dados
 
