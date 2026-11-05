@@ -147,6 +147,24 @@ def obter_dados_iniciais():
         return {"status": "erro", "mensagem": mensagem_erro(e), "anos_disponiveis": []}
 
 @eel.expose
+def obter_cotacao_py(moeda):
+    from src.simulador.cambio import cotacao
+    try:
+        return {'status': 'sucesso', 'cotacao': cotacao(moeda)}
+    except ValueError as exc:
+        return {'status': 'erro', 'mensagem': str(exc)}
+
+
+@eel.expose
+def converter_moedas_py(valores, origem_id, destino_id):
+    from src.simulador.cambio import converter_valores
+    try:
+        return {'status': 'sucesso', 'valores': converter_valores(valores, origem_id, destino_id)}
+    except ValueError as exc:
+        return {'status': 'erro', 'mensagem': str(exc)}
+
+
+@eel.expose
 def obter_fator_projecao_py():
     return str(obter_taxa_salva())
 
@@ -180,6 +198,8 @@ def obter_comprometimento_sadipem_py():
 
 
 def _calcular_operacao_compartilhada(entrada):
+    from src.simulador.cambio import entrada_em_reais
+    entrada, cotacao_usada = entrada_em_reais(entrada)
     from src.simulador.operacao import calcular_operacao
     from src.simulador.fluxo_tlp import montar_periodos
     from src.simulador.indices_publicos import obter_serie_ipca
@@ -198,6 +218,7 @@ def _calcular_operacao_compartilhada(entrada):
     confirmacao = obter_confirmacao(pagamentos, int(entrada['ano']), int(entrada['fim']))
     if confirmacao:
         dados['servico_input']['cobertura_demais'] = confirmacao
+    dados['cotacao_entrada'] = cotacao_usada
     dados['fluxo']['fonte_ipca'] = 'IBGE / Banco Central, série 433'
     dados['fluxo']['consultado_em'] = datetime.now().isoformat(timespec='seconds')
     return dados

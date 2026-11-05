@@ -56,6 +56,11 @@ function obterCondicoesOperacao() {
     const entrada = {...comum, tipo_liberacao: document.getElementById('operacao-tipo-liberacao').value,
         data_liberacao: document.getElementById('operacao-data-liberacao').value,
         fator: document.getElementById('fator-rcl').value};
+    if (typeof CambioUI !== 'undefined') {
+        entrada.cotacao_id = CambioUI.referencia().id;
+        const campo = document.getElementById('valor-requisitado');
+        if (campo.dataset.cambioExibido === campo.value && campo.dataset.cambioBrl) entrada.valor_base_brl = campo.dataset.cambioBrl;
+    }
     if (!entrada.data_liberacao) throw new Error('Informe a data prevista de recebimento.');
     for (const [nome, id] of Object.entries({prazo_meses:'tlp-prazo', carencia_meses:'tlp-carencia', prefixada:'tlp-prefixada', spread:'tlp-spread'})) {
         const campo = document.getElementById(id);
@@ -151,6 +156,7 @@ function renderizarAvaliacoesComplementares() {
     const tbody = document.getElementById('tbody-resultados');
     tbody.querySelectorAll('[data-complementar]').forEach(linha => linha.remove());
     for (const [tipo, avaliacao] of Object.entries(avaliacoesComplementares)) {
+        if (tipo === 'fluxo') continue;
         const linha = document.createElement('tr'); linha.dataset.complementar = tipo;
         for (const texto of [avaliacao.nome, avaliacao.status, avaliacao.descricao]) {
             const celula = document.createElement('td'); celula.className = 'px-6 py-4 text-sm'; celula.textContent = texto; linha.appendChild(celula);
@@ -187,7 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('operacao-erro').textContent = '';
         document.getElementById('operacao-aviso').textContent = 'Dados alterados. Simule novamente para atualizar os resultados.';
         document.querySelectorAll('#tbody-resultados tr').forEach(linha => { if (linha.children[1]) linha.children[1].textContent = 'Desatualizada'; });
-        for (const valor of Object.values(avaliacoesComplementares)) Object.assign(valor, {status: 'Desatualizada', descricao: 'Simule novamente para atualizar o resultado.'});
+        for (const valor of Object.values(avaliacoesComplementares)) Object.assign(valor, {status: 'Desatualizada', descricao: 'Dados alterados. Simule novamente para atualizar o resultado.'});
         document.getElementById('fluxo-credito-resultado').textContent = 'Dados alterados. Simule novamente.';
         document.getElementById('tlp-resultado').textContent = 'Dados alterados. Simule novamente.';
         atualizarContextoOperacao();

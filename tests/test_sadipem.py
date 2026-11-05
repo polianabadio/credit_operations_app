@@ -81,7 +81,9 @@ def test_selector_prioriza_data_e_descarta_arquivado():
 
 def test_simulacao_complementar_so_calcula_quando_todos_os_componentes_existem():
     cliente = FakeClient(liberacoes=[{'id_pleito': 74460, 'ano': 2026,
-                                     'indicador_liberacoes': '1', 'liberacoes_total': 100}])
+                                     'indicador_liberacoes': '1', 'liberacoes_total': 100}],
+        nao_contratadas=[{'id_pleito':74460,'pleito_nao_contratado':11,
+                         'ano_pvl_nao_contratado':2026,'liberacao_pvl_nao_contratado':None}])
     incompleto = simular_fluxo_goias([{'ano': 2026, 'rclProjetada': 1000,
                                        'liberacaoNovaOperacao': 20}], client=cliente)[0]
     assert incompleto['cenario']['mga'] is None
@@ -126,3 +128,28 @@ def test_cliente_respeita_intervalo_e_reutiliza_cache():
     cliente.listar('pvl')  # mesma chave: cache
     cliente.listar('res-cdp', {'id_pleito': 1})
     assert chamadas == [0.0, 1.05]
+
+
+def test_fluxo_reutiliza_zero_documentado_do_pvl_atual_sem_estender_a_futuros():
+    class ClienteZero(FakeClient):
+        def listar(self, endpoint, params=None, cancel_event=None):
+            if endpoint == 'opc-cronograma-pagamentos':
+                return [{'id_pleito': 74460, 'ano': '2026', 'indicador_liberacoes': '0'}]
+            return super().listar(endpoint, params, cancel_event)
+    resultado = simular_fluxo_goias([
+        {'ano': 2026, 'rclProjetada': '1000', 'liberacaoNovaOperacao': '100'},
+        {'ano': 2027, 'rclProjetada': '1050', 'liberacaoNovaOperacao': '0'}
+    ], client=ClienteZero())
+    assert resultado[0]['cenario']['mga'] == 100
+    assert resultado[0]['cenario']['margemEstimada'] == 60
+    assert resultado[0]['coverageConfirmed'] is False
+    assert resultado[0]['referenciaPublica']['memoria_exata'][0]['fonteZero']
+    assert resultado[1]['cenario']['mga'] is None
+
+
+def test_fluxo_vazio_sem_declaracao_nao_vira_zero():
+    resultado = simular_fluxo_goias([
+        {'ano': 2026, 'rclProjetada': '1000', 'liberacaoNovaOperacao': '100'}
+    ], client=FakeClient())
+    assert resultado[0]['cenario']['liberacoesContratadas'] is None
+    assert resultado[0]['cenario']['mga'] is None

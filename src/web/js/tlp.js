@@ -1,5 +1,6 @@
 /* Exibe a memória calculada pelo backend para a operação compartilhada. */
 function renderizarFluxoTlp(dados) {
+    window.cambioUltimoTlp = dados;
     const resultado = document.getElementById('tlp-resultado');
     function paragrafo(texto, destino = resultado) {
         const p = document.createElement('p'); p.textContent = texto; destino.appendChild(p);

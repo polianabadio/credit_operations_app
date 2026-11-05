@@ -293,6 +293,7 @@ def obter_comprometimento_goias(ano, rcl_referencia=None, cancel_event=None, cli
 def simular_fluxo_goias(linhas, client=None):
     """Cenário informado: nunca equivale a uma verificação oficial do MGA."""
     from .fluxo_credito import CreditFlowLimitService
+    from .margem_publica import obter_margem_publica
 
     if not isinstance(linhas, list) or not 1 <= len(linhas) <= 30:
         raise ValueError('Informe entre um e 30 exercícios.')
@@ -309,6 +310,18 @@ def simular_fluxo_goias(linhas, client=None):
         contratadas = sadipem['liberacoesContratadasSadipem']
         nao_contratadas = sadipem['liberacoesNaoContratadasSadipem']
         fonte_nao_contratadas = 'SADIPEM' if nao_contratadas is not None else None
+        referencia_publica = obter_margem_publica({
+            'ano': ano, 'positionOnly': True, 'parameterValidated': True,
+            'rows': [{'ano': ano, 'rclProjetada': str(rcl) if rcl is not None else None}]
+        }, sadipem, client=client)
+        memoria = next((linha for linha in referencia_publica.get('memoria_exata', [])
+                        if linha['ano'] == ano), None)
+        if memoria:
+            if contratadas is None:
+                contratadas = Decimal(memoria['liberacoesContratadas'])
+            if nao_contratadas is None and manual is None:
+                nao_contratadas = Decimal(memoria['liberacoesNaoContratadasListadas'])
+                fonte_nao_contratadas = 'Operações listadas no PVL (referência parcial)'
         if nao_contratadas is None and manual is not None:
             nao_contratadas = float(manual)
             fonte_nao_contratadas = 'Informado pelo usuário'
@@ -319,6 +332,8 @@ def simular_fluxo_goias(linhas, client=None):
             liberacoes_analisadas={ano: nova})
         resultados.append({'ano': ano, 'snapshot': sadipem['snapshot'],
                            'motivoSadipem': sadipem['motivo'],
+                           'referenciaPublica': referencia_publica,
+                           'coverageConfirmed': False,
                            'fonteNaoContratadas': fonte_nao_contratadas,
                            'statusDadosMga': SadipemMGADataStatus.PARTIAL if avaliado['dadosCompletos']
                            else SadipemMGADataStatus.UNAVAILABLE,

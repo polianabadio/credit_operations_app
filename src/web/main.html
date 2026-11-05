@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simulador de Operações de Crédito v2</title>
+    <title>Simulador de Operações de Crédito</title>
     
     <script type="text/javascript" src="/eel.js"></script>
     <link rel="stylesheet" href="css/styles.css">
@@ -34,7 +34,10 @@
 
     <header class="app-topbar">
         <div><span class="topbar-contexto">Goiás /</span> <strong id="pagina-atual">Dashboard</strong></div>
-        <span class="topbar-identificador"><span aria-hidden="true"></span> Simulador de crédito</span>
+        <div class="cambio-global">
+            <div class="cambio-controles"><label for="moeda-global">Moeda</label><select id="moeda-global" aria-describedby="cambio-estado"><option value="BRL">BRL · Real</option><option value="USD">USD · Dólar americano</option><option value="EUR">EUR · Euro</option><option value="GBP">GBP · Libra</option><option value="JPY">JPY · Iene</option><option value="CHF">CHF · Franco suíço</option><option value="CAD">CAD · Dólar canadense</option><option value="AUD">AUD · Dólar australiano</option><option value="CNY">CNY · Yuan</option></select><button id="cambio-atualizar" type="button" title="Atualizar cotação" aria-label="Atualizar cotação">↻</button></div>
+            <span id="cambio-estado" role="status">Valores em reais</span>
+        </div>
     </header>
     <div class="app-conteudo flex-grow container px-6 py-6 mx-auto my-2">
 
@@ -96,7 +99,6 @@
                 <div id="limites-meta" class="painel-meta"></div></header>
             <h2 class="limites-secao-titulo">Detalhamento dos limites</h2>
             <div id="painel-limites" class="limites-detalhes"></div>
-            <section class="painel-box limites-fator" aria-labelledby="fator-limitante-titulo"><h2 id="fator-limitante-titulo">Fator limitante</h2><strong id="fator-limitante-estado"></strong><p id="fator-limitante-texto" class="painel-help"></p><ul id="fator-limitante-impedimentos"></ul><p id="fator-limitante-conclusao"></p></section>
             <div class="painel-cta"><div><h2>Impacto de uma nova operação</h2><p>A posição fiscal atual é apenas o ponto de partida. O impacto efetivo de uma nova contratação depende de valor, descontos, prazo, juros, carência e amortizações.</p></div><button id="btn-simular-limites" type="button" class="simulation-button">Simular nova operação</button></div>
         </section>
 
@@ -111,42 +113,36 @@
                 <section class="painel-box simulacao-formulario" aria-labelledby="simulacao-dados-titulo">
                     <h2 id="simulacao-dados-titulo">Dados da nova operação</h2>
                     <form id="form-simulacao" novalidate>
-                        <div class="simulacao-campos">
-                            <div>
+                        <div class="simulacao-campos simulacao-grade">
+                            <div class="simulacao-campo-ano">
                                 <label for="ano">Ano de referência</label>
                                 <select id="ano" name="ano"></select>
                             </div>
-                            <div>
+                            <div class="simulacao-campo-valor">
                                 <label for="valor-requisitado">Valor do empréstimo (R$)</label>
                                 <input type="text" inputmode="decimal" autocomplete="off" id="valor-requisitado" name="valor-requisitado" aria-describedby="valor-erro" placeholder="R$ 0,00">
                                 <p id="valor-erro" class="simulacao-erro" role="alert" hidden></p>
                             </div>
+                            <div class="simulacao-campo-metade"><label for="operacao-data-liberacao">Data de liberação</label><input id="operacao-data-liberacao" type="date"></div>
+                            <div class="simulacao-campo-metade"><label for="operacao-tipo-liberacao">Liberação dos recursos</label><select id="operacao-tipo-liberacao"><option value="unica">Liberação única</option><option value="cronograma">Liberações em vários anos</option></select></div>
+                            <details class="operacao-cronograma" id="operacao-cronograma-detalhes">
+                                <summary>Liberações por ano</summary>
+                                <p class="simulacao-ajuda">Distribua o valor total do empréstimo entre os anos.</p>
+                                <div id="operacao-liberacoes"></div>
+                            </details>
+                            <div><label for="tlp-prazo">Prazo total (meses)</label><input id="tlp-prazo" type="number" min="1" max="600" step="1"></div>
+                            <div><label for="tlp-carencia">Carência (meses)</label><input id="tlp-carencia" type="number" min="0" step="3" aria-describedby="carencia-ajuda"><span id="carencia-ajuda" class="simulacao-ajuda">Múltiplos de 3 meses.</span></div>
+                            <div><label for="ano-fim-contrato">Ano final do empréstimo</label><select id="ano-fim-contrato"></select></div>
+                            <div><label for="tlp-prefixada">Taxa fixa da proposta (% ao ano)</label><input id="tlp-prefixada" type="number" min="0" step="any"></div>
+                            <div><label for="tlp-spread">Spread do banco (% ao ano)</label><input id="tlp-spread" type="number" min="0" step="any"></div>
+                            <div><label for="fator-rcl">Fator de Crescimento da RCL (% ao ano)</label><input id="fator-rcl" type="number" min="0" max="100" step="any"></div>
                         </div>
-                    <label class="block text-sm font-medium text-gray-700">Ano final do empréstimo
-                        <select id="ano-fim-contrato" class="mt-1 block w-full md:w-1/2 rounded-md border border-gray-300 px-3 py-2"></select>
-                    </label>
-                        <label>Data de liberação<input id="operacao-data-liberacao" type="date"></label>
-                        <label>Liberação dos recursos<select id="operacao-tipo-liberacao"><option value="unica">Liberação única</option><option value="cronograma">Liberações em vários anos</option></select></label>
-                        <details class="operacao-cronograma" id="operacao-cronograma-detalhes">
-                            <summary>Liberações por ano</summary>
-                            <p class="simulacao-ajuda">Distribua o valor total do empréstimo entre os anos.</p>
-                            <div id="operacao-liberacoes"></div>
-                        </details>
-                    <div class="simulacao-campos">
-                        <label>Prazo total (meses)<input id="tlp-prazo" type="number" min="1" max="600" step="1"></label>
-                        <label>Carência (meses)<input id="tlp-carencia" type="number" min="0" step="3"><span class="painel-help">Informe em múltiplos de 3 meses.</span></label>
-                        <label>Taxa fixa da proposta (% ao ano)<input id="tlp-prefixada" type="number" min="0" step="any"></label>
-                        <label>Spread do banco (% ao ano)<input id="tlp-spread" type="number" min="0" step="any"></label>
-                    </div>
                     <details class="painel-details"><summary>Premissas do cálculo</summary>
                         <p>Use as taxas da proposta do banco. O prazo deve terminar no ano final informado.</p>
                         <p>Durante a carência, os juros são pagos a cada três meses. A amortização começa no mês em que a carência termina.</p>
                         <p>O cálculo usa 252 dias úteis por ano e o calendário de feriados da planilha. Meses sem IPCA publicado são calculados com inflação zero, mantendo a taxa fixa e o spread.</p>
                         <p>O cálculo das parcelas atende à liberação única. Liberações em várias datas exigem outro modelo de cálculo.</p>
                     </details>
-                                <label class="text-sm font-medium text-gray-700">Taxa de crescimento da RCL (% ao ano)
-                                    <input id="fator-rcl" type="number" min="0" max="100" step="any" class="mt-1 block rounded-md border border-gray-300 px-3 py-2">
-                                </label>
                         <p id="operacao-erro" class="simulacao-erro" role="alert" hidden></p>
                         <button type="submit" class="simulation-button"><span>Simular operação</span><span aria-hidden="true">→</span></button>
                     </form>
@@ -156,14 +152,12 @@
                     <h2 id="simulacao-avaliacao-titulo">O que será avaliado?</h2>
                     <ul>
                         <li><strong>Regra de Ouro</strong><span>Exercício anterior e atual.</span></li>
-                        <li><strong>Operações de crédito · MGA/RCL</strong></li>
                         <li><strong>Serviço da dívida · CAED/RCL</strong></li>
                         <li><strong>Dívida consolidada líquida · DCL/RCL</strong></li>
                         <li><strong>Despesa com pessoal · DTP/RCL</strong></li>
                     </ul>
                     <details class="painel-details"><summary>Entenda as avaliações</summary>
                         <p><strong>Regra de Ouro:</strong> compara as receitas de operações de crédito com as despesas de capital. No exercício atual, considera a liberação do empréstimo.</p>
-                        <p><strong>MGA/RCL:</strong> compara as liberações anuais com 16% da receita corrente líquida projetada. Os detalhes indicam a cobertura dos dados do SADIPEM e as informações a complementar.</p>
                         <p><strong>CAED/RCL:</strong> avalia o comprometimento da receita com juros e amortizações, com referência de 11,5%.</p>
                         <p><strong>DCL/RCL:</strong> verifica os percentuais publicados da dívida em relação à receita ajustada, com limite de 200%, após a etapa do serviço da dívida.</p>
                         <p><strong>DTP/RCL:</strong> verifica a despesa com pessoal nos dados fiscais publicados.</p>
@@ -402,6 +396,7 @@
     <script src="js/config.js"></script>
     <script src="js/fiscal-dashboard.js"></script>
     <script src="js/eel-main.js"></script>
+    <script src="js/cambio.js"></script>
     <script src="js/operacao.js"></script>
     <script src="js/tlp.js"></script>
 </body>

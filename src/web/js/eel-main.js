@@ -150,29 +150,59 @@ function adicionarLinhaFluxoCredito() {
 }
 
 async function executarFluxoCredito(event) {
-    event.preventDefault();
+    event?.preventDefault();
     const destino = document.getElementById('fluxo-credito-resultado');
     let linhas;
     let versao, versaoEspecifica;
     try { linhas = obterEntradaFluxoCompartilhada(); versao = revisaoOperacao; versaoEspecifica = revisaoFluxo; }
-    catch (erro) { destino.textContent = mensagemErroAmigavel(erro); return; }
+    catch (erro) {
+        destino.textContent = mensagemErroAmigavel(erro);
+        registrarAvaliacaoComplementar('fluxo', 'Dados insuficientes', mensagemErroAmigavel(erro));
+        return;
+    }
     const botaoFluxo = document.querySelector('#form-fluxo-credito button[type="submit"]');
     if (botaoFluxo.disabled) return;
     botaoFluxo.disabled = true;
     botaoFluxo.setAttribute('aria-busy', 'true');
     destino.textContent = 'Consultando o SADIPEM e calculando o cenário...';
+    registrarAvaliacaoComplementar('fluxo', 'Consultando', 'Consultando liberações existentes para os anos da operação.');
     try {
         const resposta = await eel.simular_fluxo_credito_py(linhas)();
         if (versao !== revisaoOperacao || versaoEspecifica !== revisaoFluxo) return;
         if (resposta.status !== 'sucesso') throw new Error(resposta.mensagem);
-        registrarAvaliacaoComplementar('fluxo', 'Calculada', 'Liberações anuais comparadas à RCL projetada.');
+        const exercicios = resposta.exercicios ?? [];
+        const pendencias = exercicios.flatMap(item => {
+            const cenario = item.cenario;
+            const campos = [
+                ['RCL projetada', cenario.rclProjetada],
+                ['liberações contratadas', cenario.liberacoesContratadas],
+                ['liberações não contratadas', cenario.liberacoesNaoContratadas],
+                ['liberação da nova operação', cenario.liberacaoOperacaoAnalisada]
+            ].filter(([, valor]) => valor == null).map(([nome]) => nome);
+            return campos.length ? [`${item.ano}: ${campos.join(', ')}`]
+                : !cenario.dadosCompletos ? [`${item.ano}: dados inválidos ou insuficientes`] : [];
+        });
+        registrarAvaliacaoComplementar('fluxo', !exercicios.length || pendencias.length ? 'Dados insuficientes' : 'Referência parcial',
+            !exercicios.length ? 'A consulta não retornou dados anuais para avaliar o fluxo.'
+                : pendencias.length ? `Dados incompletos em ${pendencias.length} de ${exercicios.length} exercício(s). Consulte os anos e componentes pendentes em Abrir avaliação.`
+                : 'Cenário calculado com as liberações informadas. Cobertura integral não confirmada.');
         destino.replaceChildren();
-        for (const item of resposta.exercicios) {
+        for (const item of exercicios) {
             const secao = document.createElement('section');
             secao.className = 'fluxo-sim-resultado';
             const titulo = document.createElement('h3');
             titulo.textContent = `${item.ano} · ${item.cenario.dadosCompletos ? 'Cenário calculado' : 'Dados insuficientes para calcular o cenário'}`;
             secao.appendChild(titulo);
+            for (const motivo of item.referenciaPublica?.motivos ?? []) {
+                const avisoFonte = document.createElement('p');
+                avisoFonte.textContent = motivo;
+                secao.appendChild(avisoFonte);
+            }
+            if (item.referenciaPublica?.memoria_exata?.some(linha => linha.fonteZero)) {
+                const zero = document.createElement('p');
+                zero.textContent = 'O PVL declara ausência de liberações contratadas previstas neste exercício.';
+                secao.appendChild(zero);
+            }
             for (const texto of [
                 `Liberações contratadas · SADIPEM: ${item.cenario.liberacoesContratadas == null ? 'não disponíveis no SADIPEM' : formatarMoeda(item.cenario.liberacoesContratadas)}`,
                 `Não contratadas · ${item.fonteNaoContratadas || 'sem fonte'}: ${item.cenario.liberacoesNaoContratadas == null ? 'não informadas' : formatarMoeda(item.cenario.liberacoesNaoContratadas)}`,
@@ -623,6 +653,7 @@ function textoStatusLimite(regra) {
 }
 
 function renderizarResultados(resultado) {
+    window.cambioUltimoResultado = resultado;
     const container = document.getElementById('tabela-resultados-container'); // Você precisará criar este container no HTML
     const tbody = document.getElementById('tbody-resultados'); // E este tbody
     
@@ -1062,6 +1093,7 @@ function renderizarServicoDivida(regra, container) {
 
     if (Array.isArray(dados.linhas) && dados.linhas.length) {
         const projecao = criar('details', 'servico-section servico-exercicio-detalhes');
+        projecao.open = true;
         projecao.appendChild(criar('summary', '', 'Composição anual e médias do CAED'));
         if (dados.media_termino != null) {
             const medias = [
@@ -1174,6 +1206,7 @@ function renderizarServicoDivida(regra, container) {
 }
 
 function mostrarDetalhesRegra(regra) {
+    window.cambioUltimaRegra = regra;
     try { obterOperacaoCompartilhada(); atualizarContextoOperacao(); } catch (erro) { mostrarErroOperacao(mensagemErroAmigavel(erro)); return; }
     document.getElementById('modal-feedback').dataset.regraTipo = regra.tipo || '';
     const servico = regra.tipo === 'servico_divida';
@@ -1309,11 +1342,11 @@ function esconderModal() {
 
 function formatarMoeda(valor) {
     if (valor === null || valor === undefined || isNaN(valor)) return 'R$ 0,00';
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
+    return typeof CambioUI !== 'undefined' ? CambioUI.formatar(valor) : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
 }
 
 function normalizarValorMonetario(valor, nomeCampo = 'Valor') {
-    const texto = String(valor ?? '').trim().replace(/^R\$\s*/, '').replace(/\s/g, '');
+    const texto = String(valor ?? '').trim().replace(/^(?:R\$|US\$|USD|EUR|GBP|JPY|CHF|CAD|AUD|CNY|€|£|¥|JP¥|CA\$|AU\$|CN¥)\s*/, '').replace(/\s/g, '');
     if (!texto) return null;
     if (/^[-−]/.test(texto) || /^\(.*\)$/.test(texto)) {
         throw new Error(`${nomeCampo}: valor negativo não é aceito nesta projeção (${valor}).`);
@@ -1327,7 +1360,7 @@ function normalizarValorMonetario(valor, nomeCampo = 'Valor') {
     const inteiro = parteInteira.replace(/\./g, '').replace(/^0+(?=\d)/, '');
     const centavos = parteDecimal.slice(0, 2).padEnd(2, '0');
     const milhar = inteiro.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-    return {numero: `${inteiro}.${centavos}`, formatado: `R$ ${milhar},${centavos}`};
+    return {numero: `${inteiro}.${centavos}`, formatado: `${typeof CambioUI !== 'undefined' ? CambioUI.simbolo() : 'R$'} ${milhar},${centavos}`};
 }
 
 function lerValorRequisitado(valor) {

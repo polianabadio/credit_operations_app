@@ -43,7 +43,8 @@ def test_dashboard_reutiliza_snapshot_sem_prazo_da_nova_operacao():
     assert dados['pagamentos'] == {2026: '20', 2050: '0'}
     assert dados['saldos_sem_ano'][0]['demais_operacoes'] == '300'
     assert dados['cobertura_confirmada'] is False
-    assert cliente.chamadas == [('res-cronograma-pagamentos', {'id_pleito': 74460})]
+    assert cliente.chamadas == [('res-cronograma-pagamentos', {'id_pleito': 74460}),
+                                ('opc-cronograma-pagamentos', {'id_pleito': 74460})]
     assert obter_pagamentos_dashboard(2026, {}, client=cliente)['pagamentos'] == {}
 
 
@@ -157,3 +158,37 @@ def test_confirmacao_recusa_anos_ausentes(tmp_path):
     import pytest
     with pytest.raises(ValueError):
         registrar_confirmacao(consultar([registro()]), 2026, 2027, '2026-10-28', tmp_path / 'c.json')
+
+
+def test_dashboard_preserva_anos_finais_invalidos_e_saldo_sem_valores_anuais():
+    cliente = Cliente([registro(2030, None), registro('Restante a pagar', '300')])
+    snapshot = {'idPleito': 74460, 'numeroPvl': 'PVL teste',
+                'data': '2026-07-30', 'dataProtocolo': '2026-07-30'}
+    dados = obter_pagamentos_dashboard(2026, {'snapshot': snapshot}, client=cliente,
+                                       data_referencia='2026-10-29')
+    assert dados['pagamentos'] == {}
+    assert dados['anos_publicados'] == [2030]
+    assert dados['saldos_sem_ano'][0]['demais_operacoes'] == '300'
+    assert dados['snapshot']['idPleito'] == 74460
+
+
+def test_dashboard_composicao_exige_mesmo_pvl_e_reconciliacao_exata():
+    class Composto(Cliente):
+        def listar(self, endpoint, params=None, *args):
+            if endpoint == 'opc-cronograma-pagamentos':
+                return [{'id_pleito': 74460, 'ano': '2026', 'total_amortizacao': '15.01', 'total_encargos': '4.99'},
+                        {'id_pleito': 74460, 'ano': '2027', 'total_amortizacao': '5', 'total_encargos': '1'}]
+            return self.registros
+    snapshot = {'idPleito': 74460, 'numeroPvl': 'teste', 'dataProtocolo': '2026-07-30'}
+    dados = obter_pagamentos_dashboard(2026, {'snapshot': snapshot},
+        client=Composto([registro(), registro(2027, '7')]), data_referencia='2026-10-29')
+    assert dados['composicao_pagamentos'] == {'2026': {'amortizacao': '15.01', 'juros_encargos': '4.99'}}
+    assert dados['pagamentos'][2027] == '7'
+    assert any('2027' in motivo for motivo in dados['motivos'])
+    class OutroPvl(Composto):
+        def listar(self, endpoint, params=None, *args):
+            if endpoint == 'opc-cronograma-pagamentos':
+                return [{'id_pleito': 99, 'ano': '2026', 'total_amortizacao': '15', 'total_encargos': '5'}]
+            return self.registros
+    assert obter_pagamentos_dashboard(2026, {'snapshot': snapshot}, client=OutroPvl([registro()]),
+        data_referencia='2026-10-29')['composicao_pagamentos'] == {}

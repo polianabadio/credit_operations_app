@@ -55,3 +55,13 @@ Testes de domínio cobrem igualdade, precisão decimal, fontes/períodos, compos
 A lista apresenta a média determinante e o limite de 11,5%. No detalhe, o resultado aparece primeiro; histórico, composição anual e fonte ficam em seções recolhidas. Uma média disponível não é apresentada como ausência de informação. Quando a referência pública ainda não foi confirmada, o resultado numérico é identificado como relativo aos dados consultados, separado da conclusão validada.
 
 A declaração explícita de completude do usuário pode ser registrada em `instance/confirmacao_caed.json`, com fonte, data e assinatura dos dados do PVL e do intervalo. Somente a mesma base pode reutilizar essa confirmação; a consulta da API não cria uma declaração. Com confirmação válida e entradas completas, a regra mantém o comparador de até 11,5%.
+
+
+## Pagamentos no Dashboard
+
+O Dashboard não exibe gráfico de pagamentos anuais nem saldo “Restante a pagar”. As referências públicas SADIPEM permanecem na análise do serviço da dívida, com identificação de fonte, PVL, período e cobertura não confirmada. Os helpers e o campo aditivo `pagamentosDivida` da ponte Eel permanecem disponíveis por compatibilidade, sem apresentação no Dashboard.
+
+
+### Identificação da referência anual
+
+No Dashboard e em Principais Limites, o indicador realizado é identificado como “Último exercício fechado”, com ano e referência fiscal explícitos: trata-se da última posição anual disponível com RCL e despesas encerradas no sexto bimestre. O ano anterior não caracteriza, por si só, desatualização; sua utilização é intencional. A apresentação permanece neutra e separada da avaliação prospectiva, sem alterar o campo técnico `historico` do DTO.

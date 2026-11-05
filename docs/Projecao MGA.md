@@ -54,3 +54,15 @@ Playwright/Chrome: tabela em 375/1280 px, MGA na lista/modal, pagamentos únicos
 Ao carregar o Dashboard, a ponte Eel inicia automaticamente a consulta ao SADIPEM, enquanto os dados fiscais já são apresentados, e compõe `margemPublica` no backend, sem importar/persistir inventário. O saldo segundo o PVL do exercício usa liberações contratadas declaradas e liberações anuais não contratadas listadas. Quando liberações estiverem vazias, `indicador_liberacoes=0` em registro correspondente do cronograma de pagamentos comprova ausência declarada das contratadas; flag positivo/ausente, registro estranho ou duplicado não autorizam zero. Metadados: [Tesouro — cronograma de pagamentos](https://www.tesourotransparente.gov.br/ckan/dataset/599608bc-aaeb-42ca-ac48-2f46836f3278/resource/575c2398-9cf9-4476-9e89-e90a4ee0043c/download/metadados-pvl-oc-cp.pdf).
 
 A interface mostra valores, PVL, data, consulta e ressalva de cobertura. Lista vazia de não contratadas significa nenhuma listada nesse PVL; não comprova ausência fora dele. O resultado é referência pública parcial, separada da margem validada do inventário. A simulação reutiliza as liberações do mesmo PVL apenas em exercícios desconhecidos, soma a nova operação e recalcula com sua própria RCL projetada. Preserva a cobertura parcial, não preenche anos ausentes nem disponibiliza máximo de contratação validado. Não soma fotografias, não importa pagamentos como liberações e não reutiliza referência antiga para o exercício atual.
+
+
+### Apresentação em Principais Limites
+
+A leitura inicial mostra margem do exercício, teto anual e liberações existentes incluídas, com ressalva visível de cobertura parcial quando a referência é o PVL. Margem negativa e ausência permanecem explícitas. A tabela por ano, fontes, motivos e memória ficam recolhidos em “Ver cálculo, fontes e cobertura”; nenhum dado é removido ou recalculado por essa reorganização. A margem anual não representa máximo de contratação.
+
+
+### Avaliação complementar na Simulação
+
+A linha complementar “Fluxo anual de operações de crédito · MGA/RCL” e sua consulta automática pelo botão principal foram retiradas da Simulação. A margem na posição fiscal do Dashboard/Principais Limites permanece. Os serviços existentes são preservados, sem inferir atendimento ao limite pela ausência dessa linha.
+
+A avaliação complementar de fluxo reutiliza `obter_margem_publica` para reconhecer o zero explicitamente declarado em `opc-cronograma-pagamentos` do mesmo PVL/exercício e as não contratadas listadas, preservando a memória decimal e cobertura não confirmada. Não transporta zero para exercícios futuros nem substitui complemento manual conhecido. A lista resume a quantidade de exercícios incompletos; os componentes, motivos e anos continuam nos detalhes. O horizonte compartilhado até o fim dos pagamentos ainda é usado nesse fluxo; sua adequação ao calendário de liberações exige revisão explícita, sem reduzir anos silenciosamente para produzir conclusão.

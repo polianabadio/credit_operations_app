@@ -7,7 +7,7 @@ const {chromium} = require('playwright');
 const root = path.resolve(__dirname, '../src/web');
 const output = path.resolve(__dirname, '../.ui-preview');
 const painel = {
-    pagamentosDivida: {status:'Disponível',ano_inicial:2026,pagamentos:{2026:'2000000000',2027:'2500000000',2029:'0'},snapshot:{idPleito:1,numeroPvl:'PVL teste',data:'2026-07-30'},consultado_em:'2026-10-29T10:00:00',saldos_sem_ano:[{rotulo:'Restante a pagar',demais_operacoes:'3000000000'}],motivos:[]},
+    pagamentosDivida: {composicao_pagamentos:{2026:{amortizacao:'1600000000',juros_encargos:'400000000'},'Restante a pagar':{amortizacao:'2800000000',juros_encargos:'200000000'}},status:'Disponível',ano_inicial:2026,pagamentos:{2026:'2000000000',2027:'2500000000',2029:'0'},snapshot:{idPleito:1,numeroPvl:'PVL teste',data:'2026-07-30'},consultado_em:'2026-10-29T10:00:00',saldos_sem_ano:[{rotulo:'Restante a pagar',demais_operacoes:'3000000000'}],motivos:[]},
     exercicio: 2026, ultima_consulta: '2026-10-28T16:00:00', dados_disponiveis: 10,
     historico_divida_rcl: Array.from({length:12},(_,i)=>({ano:2015+i,periodo:i===11?2:3,parcial:i===11,
         divida_consolidada:String(20000000000+i*800000000),rcl:String(25000000000+i*2000000000),
@@ -33,6 +33,8 @@ const painel = {
 };
 const stub = `const painelFixture=${JSON.stringify(painel)};
 window.eel=new Proxy({}, {get(_,nome){ if(nome==='_websocket') return null; return (...args)=>async()=>{
+if(nome==='obter_cotacao_py'){if(args[0]==='JPY')return {status:'erro',mensagem:'Cotação indisponível'};return {status:'sucesso',cotacao:{moeda:args[0],taxa_brl:args[0]==='BRL'?'1':'5',id:args[0],data:'2026-11-05T12:00:00Z'}};}
+if(nome==='converter_moedas_py')return {status:'sucesso',valores:args[0].map(v=>{const brl=Number(v)*(args[1]==='BRL'?1:5);return {brl:brl.toFixed(2),valor:(brl/(args[2]==='BRL'?1:5)).toFixed(2)};})};
 if(nome==='obter_dados_iniciais') return {status:'sucesso',anos_disponiveis:[2026,2025]};
 if(nome==='obter_fator_projecao_py') return '2.031208231';
 if(nome==='obter_painel_fiscal_py') return {status:'sucesso',painel:painelFixture};
@@ -73,19 +75,8 @@ const server = http.createServer((req,res) => {
         assert(!await page.locator('.painel-ponte-conteudo').isVisible());
         await page.locator('.painel-hero').screenshot({path:path.join(output,'dashboard-titulo-branco.png')});
         await page.evaluate(p=>renderizarVisaoFiscal(p),painel);
-        assert.equal(await page.locator('.pagamentos-divida-ano').count(),4);
-        assert.equal(await page.locator('.pagamentos-divida-barra').count(),3);
-        assert.match(await page.locator('.pagamentos-divida-pico').textContent(),/2027.*2\.500\.000\.000,00/);
-        assert.match(await page.locator('.pagamentos-divida').textContent(),/Restante a pagar/);
-        await page.locator('.pagamentos-divida-ano[data-ano="2028"] text').last().click();
-        assert.match(await page.locator('.pagamentos-divida-selecionado').textContent(),/2028 · Pagamento não informado/);
-        await page.locator('.pagamentos-divida-ano[data-ano="2029"] text').last().click();
-        assert.match(await page.locator('.pagamentos-divida-selecionado').textContent(),/2029.*0,00/);
-        await page.locator('.pagamentos-divida-ano[data-ano="2027"]').focus();
-        await page.keyboard.press('Enter');
-        assert.match(await page.locator('.pagamentos-divida-selecionado').textContent(),/2027.*2\.500/);
-        await page.locator('.pagamentos-divida').evaluate(el=>el.scrollIntoView({block:'center'}));
-        await page.locator('.pagamentos-divida').screenshot({path:path.join(output,'dashboard-pagamentos-divida.png')});
+        assert.equal(await page.locator('.pagamentos-divida').count(),0);
+        assert.equal(await page.getByRole('heading', {name:'Pagamentos anuais da dívida', exact:true}).count(),0);
         assert.equal(await page.locator('.ouro-componente-trilho span').count(),2);
         assert.match(await page.locator('.ouro-margem > strong').textContent(),/6\.500\.000\.000,00/);
         assert.match(await page.locator('.ouro-referencia').textContent(),/4º bimestre de 2026/);
@@ -122,15 +113,15 @@ const server = http.createServer((req,res) => {
         assert.equal(await page.locator('#home-limites .limite-comparacao-trilho').count(),2);
         assert.equal(await page.locator('#home-limites .limite-resumo-descricao, #home-limites .limite-resumo-linha').count(),0);
         assert.equal(await page.locator('.limites-interpretacao').count(),0);
-        assert.match(await page.locator('[data-limite="caed"]').textContent(),/Referência histórica · 2025/);
+        assert.match(await page.locator('[data-limite="caed"]').textContent(),/Último exercício fechado · 2025/);
         assert.equal(await page.locator('[data-limite="dcl"] .limite-grafico-principal strong').textContent(),'43,30%');
         assert.match(await page.locator('[data-limite="dcl"] .limite-comparacao-escala').textContent(),/Limite: 200,00%/);
         assert.doesNotMatch(await page.locator('[data-limite="dcl"]').textContent(),/21,65%|do limite utilizado/);
         assert.equal(await page.locator('[data-limite="mga"] .limite-comparacao, [data-limite="mga"] svg').count(),0);
         await page.evaluate(p=>{
             const teste=structuredClone(p);
-            teste.fluxo_credito={ano:2026,percentualLimite:16};
-            teste.margemPublica={status:'Referência pública',rows:[{ano:2026,tetoAnual:8000000000,scheduledDisbursements:1000000000,margemEstimada:7000000000}]};
+            teste.fluxo_credito={ano:2026,percentualLimite:16,positionOnly:true,parameterValidated:true,rows:[{ano:2026,dadosCompletos:false,rclProjetada:50000000000,tetoAnual:8000000000}],sources:{rclSource:'SICONFI/RREO',rclExercise:2026,rclReferencePeriod:4}};
+            teste.margemPublica={status:'Referência pública',snapshot:{numeroPvl:'PVL teste',data:'30/07/2026'},motivos:['Cobertura atual não confirmada'],rows:[{ano:2026,tetoAnual:8000000000,scheduledDisbursements:1000000000,margemEstimada:7000000000}]};
             renderizarVisaoFiscal(teste);
         },painel);
         assert.match(await page.locator('[data-limite="mga"]').textContent(),/Referência do PVL · 2026/);
@@ -138,6 +129,34 @@ const server = http.createServer((req,res) => {
         assert.match(await page.locator('[data-limite="mga"] .limite-grafico-principal').textContent(),/7\.000\.000\.000,00/);
         await page.locator('#home-limites').evaluate(el=>el.scrollIntoView({block:'center'}));
         await page.locator('#home-limites').screenshot({path:path.join(output,'dashboard-limites-graficos.png')});
+        await page.click('#nav-limites');
+        assert.equal(await page.locator('.limites-fator').count(),0);
+        const margemDetalhe = page.locator('#painel-limites .margem-credito');
+        assert.match(await margemDetalhe.locator('.margem-valor-principal').textContent(), /7\.000\.000\.000,00/);
+        assert.match(await margemDetalhe.locator('.limite-ressalva').textContent(), /cobertura.*não está confirmada/);
+        assert(!await margemDetalhe.locator('table').isVisible());
+        await margemDetalhe.locator('summary').focus();
+        await page.keyboard.press('Enter');
+        assert(await margemDetalhe.locator('table').isVisible());
+        assert.match(await margemDetalhe.locator('details').textContent(), /PVL teste/);
+        await margemDetalhe.locator('summary').click();
+        assert.equal(await page.locator('#painel-limites [data-regra="dcl"] h3').textContent(),'DCL/RCL · Estoque da dívida');
+        assert.equal(await page.locator('#painel-limites [data-regra="caed"] h3').textContent(),'CAED/RCL · Serviço da dívida');
+        assert.equal(await page.locator('#painel-limites .limite-valores > div').count(),4);
+        assert.equal(await page.locator('#painel-limites .painel-progress-track').count(),0);
+        assert.match(await page.locator('#painel-limites .limite-ressalva').allTextContents().then(t=>t.join(' ')), /último exercício fechado disponível \(2025\)/);
+        await margemDetalhe.locator('summary').blur();
+        await page.locator('#painel-limites').screenshot({path:path.join(output,'limites-simplificados.png')});
+        await page.setViewportSize({width:390,height:844});
+        assert(!await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2));
+        await margemDetalhe.locator('summary').click();
+        assert(await margemDetalhe.locator('table').isVisible());
+        assert(!await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2));
+        await margemDetalhe.locator('summary').click();
+        await margemDetalhe.locator('summary').blur();
+        await page.locator('#painel-limites').screenshot({path:path.join(output,'limites-simplificados-mobile.png')});
+        await page.setViewportSize({width:1440,height:1000});
+        await page.click('#nav-painel');
         await page.evaluate(p=>{
             const teste=structuredClone(p);
             teste.fluxo_credito={ano:2026,percentualLimite:16};
@@ -222,6 +241,14 @@ const server = http.createServer((req,res) => {
             const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2);
             assert(!overflow, 'Rolagem horizontal em '+label);
         }
+        await page.click('#nav-simulacao');
+        assert.equal(await page.locator('#form-simulacao legend').count(),0);
+        assert(await page.locator('#fator-rcl').isVisible());
+        assert(await page.locator('#fator-rcl').evaluate(el => Boolean(el.compareDocumentPosition(document.querySelector('#form-simulacao > details')) & Node.DOCUMENT_POSITION_FOLLOWING)));
+        await page.locator('#form-simulacao > details summary').click();
+        assert(await page.locator('#form-simulacao > details p').first().isVisible());
+        await page.locator('#form-simulacao > details summary').click();
+        await page.locator('#secao-simulacao .simulacao-formulario').screenshot({path:path.join(output,'simulacao-campos-organizados.png')});
         assert.equal(await page.locator('#nav-configuracoes').count(),0);
         await page.evaluate(()=>mostrarSecao('secao-configuracoes'));
         await page.click('#openDbConfigModalBtn');
@@ -242,6 +269,29 @@ const server = http.createServer((req,res) => {
         }
         await page.click('#nav-painel');
         await page.screenshot({path:path.join(output,'mobile.png'),fullPage:true});
+        await page.click('#nav-simulacao');
+        await page.fill('#valor-requisitado','1.000,00');
+        await page.selectOption('#moeda-global','USD');
+        await page.waitForFunction(()=>!document.getElementById('moeda-global').disabled);
+        assert.equal(await page.locator('#moeda-global').inputValue(),'USD');
+        assert.match(await page.locator('#valor-requisitado').inputValue(), /200,00/);
+        assert.match(await page.locator('label[for="valor-requisitado"]').textContent(), /USD/);
+        assert.match(await page.locator('#cambio-estado').textContent(), /1 USD = R\$/);
+        assert.equal(await page.evaluate(()=>CambioUI.referencia().id),'USD');
+        await page.click('#nav-painel');
+        assert.match(await page.locator('.divida-historico-detalhe').textContent(), /US\$/);
+        assert.match(await page.locator('.divida-historico-svg').getAttribute('aria-label'), /USD/);
+        assert.equal(await page.locator('.divida-historico-ponto-dcl').count(),12);
+        await page.click('#nav-simulacao');
+        assert.equal(await page.evaluate(()=>localStorage.getItem('simulador.moeda')),'USD');
+        await page.selectOption('#moeda-global','JPY');
+        await page.waitForFunction(()=>!document.getElementById('moeda-global').disabled);
+        assert.equal(await page.locator('#moeda-global').inputValue(),'USD');
+        assert.match(await page.locator('#cambio-estado').textContent(), /indisponível/);
+        await page.selectOption('#moeda-global','BRL');
+        await page.waitForFunction(()=>!document.getElementById('moeda-global').disabled);
+        assert.match(await page.locator('#valor-requisitado').inputValue(), /1\.000,00/);
+        assert(!await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2));
         assert.deepEqual(errors,[]);
         console.log('Interface: três abas públicas em 1440px e 390px; recursos técnicos preservados sem acesso pelo menu.');
     } finally { if(browser) await browser.close(); server.close(); }

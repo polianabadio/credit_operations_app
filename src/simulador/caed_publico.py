@@ -60,7 +60,7 @@ def obter_pagamentos_caed(ano, fim, data_referencia, client=None, snapshot=None)
     referencia = datetime.fromisoformat(data_referencia)
     resultado = {'fonte': 'SADIPEM / res-cronograma-pagamentos', 'snapshot': None,
                  'consultado_em': datetime.now().isoformat(timespec='seconds'),
-                 'pagamentos': {}, 'saldos_sem_ano': [], 'cobertura_confirmada': False, 'motivos': []}
+                 'pagamentos': {}, 'anos_publicados': [], 'saldos_sem_ano': [], 'cobertura_confirmada': False, 'motivos': []}
     try:
         pvls = ([snapshot] if snapshot is not None else
                 SadipemSnapshotSelector().ordenar(SadipemPvlService(cliente).goias()))
@@ -88,6 +88,7 @@ def obter_pagamentos_caed(ano, fim, data_referencia, client=None, snapshot=None)
             exercicio = int(registro['ano'])
             if exercicio >= ano and (fim is None or exercicio <= fim):
                 por_ano.setdefault(exercicio, []).append(registro)
+        resultado['anos_publicados'] = sorted(por_ano)
         for exercicio, linhas in por_ano.items():
             if len(linhas) != 1:
                 resultado['motivos'].append(f'Pagamentos conflitantes em {exercicio}.')
@@ -100,6 +101,7 @@ def obter_pagamentos_caed(ano, fim, data_referencia, client=None, snapshot=None)
     except Exception as exc:
         log.error('Falha na consulta de pagamentos CAED.', details=str(exc))
         resultado['pagamentos'] = {}
+        resultado['anos_publicados'] = []
         resultado['motivos'].append('Não foi possível consultar os pagamentos no SADIPEM agora.')
     return resultado
 
@@ -115,6 +117,37 @@ def obter_pagamentos_dashboard(ano, sadipem, client=None, data_referencia=None):
     dados = obter_pagamentos_caed(ano, None, referencia, client=client, snapshot=pvl)
     dados['status'] = 'Disponível' if dados['pagamentos'] else 'Indisponível'
     dados['ano_inicial'] = ano
+    dados['composicao_pagamentos'] = {}
+    # O resumo permanece a referência; só mostrar composição que reconcilia exatamente.
+    if dados['pagamentos'] or dados['saldos_sem_ano']:
+        try:
+            registros = SadipemPagamentosService(client or _client).por_pvl(snapshot['idPleito'])
+            por_rotulo = {}
+            for registro in registros:
+                if str(registro.get('id_pleito')) != str(snapshot['idPleito']):
+                    raise ValueError('Composição de outro PVL.')
+                rotulo = str(registro.get('ano', '')).strip().casefold()
+                por_rotulo.setdefault(rotulo, []).append(registro)
+            alvos = [(str(exercicio), valor) for exercicio, valor in dados['pagamentos'].items()]
+            alvos += [(saldo['rotulo'], saldo['demais_operacoes']) for saldo in dados['saldos_sem_ano']]
+            from decimal import localcontext
+            for rotulo, total in alvos:
+                linhas = por_rotulo.get(str(rotulo).strip().casefold(), [])
+                try:
+                    if len(linhas) != 1:
+                        raise ValueError('Composição ausente ou ambígua.')
+                    amortizacao = valor_monetario(linhas[0].get('total_amortizacao'), 'amortização')
+                    encargos = valor_monetario(linhas[0].get('total_encargos'), 'juros e encargos')
+                    with localcontext() as contexto:
+                        contexto.prec = 50
+                        if amortizacao + encargos != valor_monetario(total, 'total'):
+                            raise ValueError('Composição divergente do resumo.')
+                    dados['composicao_pagamentos'][rotulo] = {
+                        'amortizacao': str(amortizacao), 'juros_encargos': str(encargos)}
+                except ValueError:
+                    dados['motivos'].append(f'Composição de amortização e encargos indisponível ou divergente em {rotulo}.')
+        except Exception:
+            dados['motivos'].append('Não foi possível consultar a composição de amortização e encargos; os totais do resumo foram preservados.')
     return dados
 
 
