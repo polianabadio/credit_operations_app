@@ -114,6 +114,7 @@
                     <h2 id="simulacao-dados-titulo">Dados da nova operação</h2>
                     <form id="form-simulacao" novalidate>
                         <div class="simulacao-campos simulacao-grade">
+                            <div id="moeda-entrada-campo"><label for="moeda-entrada">Moeda</label><select id="moeda-entrada"><option value="BRL">BRL · Real</option><option value="USD">USD · Dólar americano</option><option value="EUR">EUR · Euro</option><option value="GBP">GBP · Libra</option><option value="JPY">JPY · Iene</option><option value="CHF">CHF · Franco suíço</option><option value="CAD">CAD · Dólar canadense</option><option value="AUD">AUD · Dólar australiano</option><option value="CNY">CNY · Yuan</option></select><span id="moeda-entrada-estado" class="simulacao-ajuda" role="status" hidden></span></div>
                             <div class="simulacao-campo-ano">
                                 <label for="ano">Ano de referência</label>
                                 <select id="ano" name="ano"></select>
@@ -123,31 +124,63 @@
                                 <input type="text" inputmode="decimal" autocomplete="off" id="valor-requisitado" name="valor-requisitado" aria-describedby="valor-erro" placeholder="R$ 0,00">
                                 <p id="valor-erro" class="simulacao-erro" role="alert" hidden></p>
                             </div>
-                            <div class="simulacao-campo-metade"><label for="operacao-data-liberacao">Data de liberação</label><input id="operacao-data-liberacao" type="date"></div>
-                            <div class="simulacao-campo-metade"><label for="operacao-tipo-liberacao">Liberação dos recursos</label><select id="operacao-tipo-liberacao"><option value="unica">Liberação única</option><option value="cronograma">Liberações em vários anos</option></select></div>
-                            <details class="operacao-cronograma" id="operacao-cronograma-detalhes">
-                                <summary>Liberações por ano</summary>
-                                <p class="simulacao-ajuda">Distribua o valor total do empréstimo entre os anos.</p>
-                                <div id="operacao-liberacoes"></div>
-                            </details>
-                            <div><label for="tlp-carencia">Carência (meses)</label><input id="tlp-carencia" type="number" min="0" max="599" step="3" aria-describedby="carencia-ajuda"><span id="carencia-ajuda" class="simulacao-ajuda">Múltiplos de 3 meses.</span></div>
-                            <div><label for="operacao-amortizacao">Amortização (meses)</label><input id="operacao-amortizacao" type="number" min="1" max="600" step="1"></div>
+                            <div class="simulacao-campo-metade"><label for="operacao-data-liberacao">Data de início / primeira liberação</label><input id="operacao-data-liberacao" type="date"></div>
+                            <div><label for="tlp-carencia">Prazo de carência (meses)</label><input id="tlp-carencia" type="number" min="0" max="599" step="1" aria-describedby="carencia-ajuda"><span id="carencia-ajuda" class="simulacao-ajuda">Múltiplos de 3 meses.</span></div>
+                            <div><label for="operacao-amortizacao">Prazo de amortização (meses)</label><input id="operacao-amortizacao" type="number" min="1" max="600" step="1"></div>
                             <div><label for="tlp-prazo">Prazo total (meses)</label><input id="tlp-prazo" type="number" min="1" max="600" step="1" readonly aria-describedby="prazo-total-ajuda"><span id="prazo-total-ajuda" class="simulacao-ajuda">Carência + amortização.</span></div>
-                            <div><label for="ano-fim-contrato">Ano final do empréstimo</label><select id="ano-fim-contrato"></select></div>
+                            <div><label for="ano-fim-contrato">Ano final do empréstimo (calculado)</label><select id="ano-fim-contrato" disabled><option value="">A calcular</option></select><span id="operacao-termino-calculado" class="simulacao-ajuda" aria-live="polite"></span></div>
                             <div><label for="operacao-indexador">Indexador</label><select id="operacao-indexador"><option value="IPCA">IPCA</option><option value="FIXA">Sem indexação</option><option value="TLP">TLP</option><option value="CDI">CDI</option><option value="SELIC">Selic</option><option value="SOFR">SOFR</option><option value="CAMBIAL">Variação cambial</option></select></div>
-                            <div id="operacao-moeda-campo" hidden><label for="operacao-moeda-contrato">Moeda da operação</label><select id="operacao-moeda-contrato"><option value="USD">USD · Dólar americano</option><option value="EUR">EUR · Euro</option><option value="GBP">GBP · Libra esterlina</option><option value="JPY">JPY · Iene</option><option value="CHF">CHF · Franco suíço</option><option value="CAD">CAD · Dólar canadense</option><option value="AUD">AUD · Dólar australiano</option><option value="CNY">CNY · Yuan</option></select></div>
+                            <div id="operacao-moeda-campo" hidden><label for="operacao-moeda-contrato">Moeda da operação</label><select id="operacao-moeda-contrato"><option value="USD">USD · Dólar americano</option><option value="EUR">EUR · Euro</option><option value="GBP">GBP · Libra</option><option value="JPY">JPY · Iene</option><option value="CHF">CHF · Franco suíço</option><option value="CAD">CAD · Dólar canadense</option><option value="AUD">AUD · Dólar australiano</option><option value="CNY">CNY · Yuan</option></select></div>
                             <div id="operacao-cotacao-campo" hidden><label for="operacao-cotacao-contrato">Cotação contratual (R$ por unidade)</label><input id="operacao-cotacao-contrato" type="text" inputmode="decimal" placeholder="Ex.: 5,40" autocomplete="off"><span class="simulacao-ajuda">Fixa durante esta simulação.</span></div>
                             <div id="operacao-juros-campo" hidden><label for="operacao-juros-cambial">Juros da operação cambial</label><select id="operacao-juros-cambial"><option value="FIXA">Taxa fixa + spread</option><option value="SOFR">SOFR + taxa fixa + spread</option></select></div>
                             <div id="operacao-taxa-campo" hidden><label for="operacao-taxa-indexador">Taxa do indexador (% ao ano)</label><div class="indexador-controle"><input id="operacao-taxa-indexador" type="number" min="0" max="1000" step="any"><button id="operacao-atualizar-taxa" type="button" class="jornada-link" aria-label="Consultar taxa do indexador">Atualizar</button></div><span id="operacao-taxa-fonte" class="simulacao-ajuda" role="status"></span></div>
                             <div><label for="tlp-prefixada">Taxa fixa da proposta (% ao ano)</label><input id="tlp-prefixada" type="number" min="0" step="any"></div>
-                            <div><label for="tlp-spread">Spread do banco (% ao ano)</label><input id="tlp-spread" type="number" min="0" step="any"></div>
+                            <div><label for="tlp-spread">Spread de captação (% ao ano)</label><input id="tlp-spread" type="number" min="0" step="any"></div>
                             <div><label for="fator-rcl">Fator de Crescimento da RCL (% ao ano)</label><input id="fator-rcl" type="number" min="0" max="100" step="any"></div>
                         </div>
+                        <div class="simulacao-campos simulacao-grade">
+                            <div id="tipo-liberacao-campo"><label for="operacao-tipo-liberacao">Liberação dos recursos</label><select id="operacao-tipo-liberacao"><option value="unica">Liberação única</option><option value="fracionada">Liberação fracionada</option></select></div>
+                            <div id="periodicidade-liberacao-campo" hidden><label for="operacao-periodicidade-liberacao">Como informar as liberações?</label><select id="operacao-periodicidade-liberacao"><option value="cronograma">Por ano</option><option value="semestral">Por semestre</option></select></div>
+                            <details class="operacao-cronograma" id="operacao-cronograma-detalhes">
+                                <summary>Liberações por ano</summary>
+                                <p id="liberacoes-ajuda" class="simulacao-ajuda">Distribua o valor total do empréstimo entre os anos.</p><button id="liberacoes-preencher-zero" type="button" class="jornada-link">Preencher campos vazios com zero</button>
+                                <div id="operacao-liberacoes"></div>
+                            </details>
+                        </div>
+                    <div id="operacao-condicoes-contratuais" hidden>
+                        <div id="calendario-etapas" class="condicoes-contratuais-grade" hidden>
+                            <div><label for="data-assinatura">Data de assinatura prevista</label><input id="data-assinatura" type="date"><span class="simulacao-ajuda">Se ficar em branco, usa a data da primeira liberação.</span></div>
+                            <div><label for="data-vigencia">Data de vigência prevista</label><input id="data-vigencia" type="date"><span class="simulacao-ajuda">Se ficar em branco, usa a data da primeira liberação.</span></div>
+                            <div><label for="primeiro-vencimento-juros">Primeiro vencimento de juros</label><input id="primeiro-vencimento-juros" type="date"><span class="simulacao-ajuda">Se ficar em branco, usa a vigência mais o primeiro período de juros.</span></div>
+                            <div><label for="dias-inicio-comissao">Início da comissão após assinatura (dias)</label><input id="dias-inicio-comissao" type="number" min="0" max="6000" step="1" value="60"></div>
+                            <div><label for="prazo-desembolso">Prazo para desembolsos após vigência (meses)</label><input id="prazo-desembolso" type="number" min="1" max="600" step="1" value="60"></div>
+                        </div>
+                        <div class="condicoes-contratuais-grade">
+                            <div><label for="periodicidade-amortizacao">Periodicidade da amortização</label><select id="periodicidade-amortizacao"><option value="1">Mensal</option><option value="3">Trimestral</option><option value="6" selected>Semestral</option><option value="12">Anual</option></select></div>
+                            <div><label for="periodicidade-juros">Periodicidade dos juros</label><select id="periodicidade-juros"><option value="1">Mensal</option><option value="3">Trimestral</option><option value="6" selected>Semestral</option><option value="12">Anual</option></select></div>
+                            <div id="metodo-sofr-campo" hidden><label for="metodo-sofr">Cálculo dos juros com SOFR</label><select id="metodo-sofr"><option value="simples">Juros simples sobre a taxa total</option><option value="composta_projetada">SOFR composta + spreads simples</option></select></div>
+                            <div><label for="base-juros">Base de cálculo dos juros</label><select id="base-juros"><option value="360">Dias corridos / 360</option><option value="365">Dias corridos / 365</option><option value="252">Dias úteis / 252</option></select></div>
+                            <div><label for="spread-capital">Spread de capital (% ao ano)</label><input id="spread-capital" type="number" min="0" max="1000" step="any" value="0"></div>
+                            <div><label for="comissao-credito">Comissão sobre saldo não desembolsado (% ao ano)</label><input id="comissao-credito" type="number" min="0" max="1000" step="any" value="0"></div>
+                            <div><label for="mes-liberacoes">Mês das liberações nos anos seguintes</label><select id="mes-liberacoes"><option value="1">Janeiro</option><option value="2">Fevereiro</option><option value="3">Março</option><option value="4">Abril</option><option value="5">Maio</option><option value="6">Junho</option><option value="7" selected>Julho</option><option value="8">Agosto</option><option value="9">Setembro</option><option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option></select></div>
+                        </div>
+                        <p id="convencao-contratual-ajuda" class="painel-help">Amortização constante, limitada ao saldo disponível. Taxas mantidas constantes neste cenário.</p>
+                        <details id="operacao-encargos-detalhes" class="painel-details"><summary>Outros encargos e comissões por ano</summary><p class="painel-help">Valores na moeda do empréstimo, pagos no fim do ano ou no término da operação. Zero representa a hipótese de não incluir outros encargos neste cenário.</p><div id="operacao-outros-encargos"></div></details>
+                    </div>
+                    <details id="complemento-limites-campo" class="painel-details">
+                        <summary>Demais operações para os limites de liberações e estoque</summary>
+                        <p class="painel-help">Valores em reais. Complete somente operações não incorporadas à base usada, evitando contar a mesma dívida duas vezes. Campo vazio significa desconhecido.</p>
+                        <label><input id="limites-cenario-isolado" type="checkbox"> Usar hipótese sem outras operações nestes dois cenários</label>
+                        <label for="limites-outras-dcl">Outras operações não incorporadas na DCL (R$)</label><input id="limites-outras-dcl" type="number" min="0" step=".01">
+                        <div id="limites-demais-liberacoes"></div>
+                        <label for="limites-fonte">Fonte e referência das demais operações</label><input id="limites-fonte" type="text" maxlength="500">
+                        <label><input id="limites-cobertura" type="checkbox"> Confirmo a cobertura das demais operações para o período informado, conforme a fonte indicada</label>
+                    </details>
                     <details class="painel-details"><summary>Premissas do cálculo</summary>
                         <p>Use as taxas da proposta do banco. O prazo deve terminar no ano final informado.</p>
-                        <p>Durante a carência, os juros são pagos a cada três meses. A amortização começa no mês em que a carência termina.</p>
+                        <p id="premissas-periodicidade">Durante a carência, os juros são pagos a cada três meses. A amortização começa no mês em que a carência termina.</p>
                         <p id="operacao-premissas-indexador">IPCA: taxas em 252 dias úteis e calendário da planilha. Meses sem IPCA publicado usam inflação zero, mantendo a taxa fixa e o spread.</p>
-                        <p>O cálculo das parcelas atende à liberação única. Liberações em várias datas exigem outro modelo de cálculo.</p>
+                        <p id="premissas-liberacoes">IPCA/TLP conservam o modelo FCL de liberação única. Os demais cenários permitem liberações em etapas.</p>
                     </details>
                         <p id="operacao-erro" class="simulacao-erro" role="alert" hidden></p>
                         <button type="submit" class="simulation-button"><span>Simular operação</span><span aria-hidden="true">→</span></button>
@@ -158,6 +191,7 @@
                     <h2 id="simulacao-avaliacao-titulo">O que será avaliado?</h2>
                     <ul>
                         <li><strong>Regra de Ouro</strong><span>Exercício anterior e atual.</span></li>
+                        <li><strong>Liberações anuais · MGA/RCL</strong><span>Limite de 16% da RCL projetada.</span></li>
                         <li><strong>Serviço da dívida · CAED/RCL</strong></li>
                         <li><strong>Dívida consolidada líquida · DCL/RCL</strong></li>
                         <li><strong>Despesa com pessoal · DTP/RCL</strong></li>
@@ -177,6 +211,7 @@
                 <p class="painel-kicker">Resultado da simulação</p>
                 <h2 id="simulacao-resultados-titulo">Avaliações deste empréstimo</h2>
                 <p id="operacao-aviso" class="painel-help" role="status"></p>
+                <div id="resumo-operacao" hidden></div>
                 <p class="painel-help">Abra uma avaliação para consultar o cálculo e complementar os dados solicitados.</p>
                 <div class="overflow-x-auto">
                     <table class="min-w-full bg-white">

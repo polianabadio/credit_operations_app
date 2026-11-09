@@ -127,6 +127,24 @@ def obter_cotacao_py(moeda):
 
 
 @eel.expose
+def obter_cotacao_contratual_py(moeda, taxa):
+    from src.simulador.cambio import registrar_cotacao_contratual
+    try:
+        return {'status':'sucesso','cotacao':registrar_cotacao_contratual(moeda,taxa)}
+    except ValueError as exc:
+        return {'status':'erro','mensagem':str(exc)}
+
+
+@eel.expose
+def converter_entradas_simulacao_py(valores, origem_id, destino_id, conciliar_liberacoes=False):
+    from src.simulador.cambio import converter_entradas
+    try:
+        return {'status':'sucesso',**converter_entradas(valores,origem_id,destino_id,conciliar_liberacoes)}
+    except ValueError as exc:
+        return {'status':'erro','mensagem':str(exc)}
+
+
+@eel.expose
 def converter_moedas_py(valores, origem_id, destino_id):
     from src.simulador.cambio import converter_valores
     try:
@@ -181,17 +199,19 @@ def _calcular_operacao_compartilhada(entrada):
     from src.simulador.cambio import entrada_em_reais
     entrada, cotacao_usada = entrada_em_reais(entrada)
     from src.simulador.operacao import calcular_operacao, normalizar_prazos
-    entrada = normalizar_prazos(entrada)
+    if entrada.get('modo_calculo') != 'anual_informado':
+        entrada = normalizar_prazos(entrada)
     from src.simulador.fluxo_tlp import montar_periodos
     from src.simulador.indices_publicos import obter_serie_ipca
     from src.simulador.data_access import obter_rcl_caed
     from datetime import datetime, date
-    periodos = montar_periodos(entrada['data_liberacao'], entrada['prazo_meses'], entrada['carencia_meses'])
+    anual_informado = entrada.get('modo_calculo') == 'anual_informado'
+    periodos = [] if anual_informado or entrada.get('modelo_fluxo') == 'contratual' else montar_periodos(entrada['data_liberacao'], entrada['prazo_meses'], entrada['carencia_meses'])
     referencia = entrada.get('data_referencia') or date.today().isoformat()
     rcl = obter_rcl_caed(int(entrada['ano']), referencia)
     fator = obter_fator_projecao(referencia)
     dados = calcular_operacao(entrada, serie_ipca=(obter_serie_ipca(periodos[0]['competencia_ipca'])
-                              if entrada.get('indexador', 'IPCA') in ('IPCA', 'TLP') else {}),
+                              if periodos and entrada.get('indexador', 'IPCA') in ('IPCA', 'TLP') else {}),
                               rcl_base=rcl['valor'] if rcl else None, referencia_rcl=rcl, fator_projecao=fator)
     dados['servico_input']['data_referencia'] = referencia
     from src.simulador.caed_publico import obter_pagamentos_caed, integrar_pagamentos_caed, obter_confirmacao
@@ -212,6 +232,16 @@ def avaliar_operacao_completa_py(entrada):
     try:
         dados = _calcular_operacao_compartilhada(entrada)
         dados['analise'] = analisar_operacao(int(entrada['ano']), float(dados['bases_fluxo'][0]['liberacaoNovaOperacao']), dados['servico_input'])
+        from src.simulador.resumo_limites import demonstrar_dcl, demonstrar_mga
+        from src.simulador.data_access import obter_registros_dcl
+        complemento = entrada.get('complemento_limites') or {}
+        principal = dados['fluxo']['amortizacao_total']
+        dados['resumo_limites'] = {
+            'dcl': demonstrar_dcl(int(entrada['ano']), obter_registros_dcl(int(entrada['ano'])), principal,
+                complemento.get('outras_operacoes_dcl_brl'), complemento.get('cobertura'), complemento.get('fonte')),
+            'mga': demonstrar_mga(dados['bases_fluxo'], complemento.get('demais_liberacoes_brl'),
+                complemento.get('cobertura'), complemento.get('fonte'))}
+
         return {'status': 'sucesso', 'resultado': dados}
     except Exception as exc:
         log.error('Erro no cálculo compartilhado da operação.', details=str(exc))
@@ -253,6 +283,16 @@ def consultar_ipca_py(mes):
         return {'status': 'erro', 'mensagem': mensagem_erro(exc)}
     except Exception:
         return {'status': 'erro', 'mensagem': 'Não foi possível consultar o Banco Central agora. Tente novamente ou informe o índice e confira sua fonte.'}
+
+
+@eel.expose
+def prever_termino_fcl_py(data_liberacao, prazo_meses, carencia_meses):
+    from src.simulador.fluxo_tlp import montar_periodos
+    try:
+        periodos = montar_periodos(data_liberacao, prazo_meses, carencia_meses)
+        return {'status': 'sucesso', 'fim': periodos[-1]['fim'].isoformat()}
+    except ValueError as erro:
+        return {'status': 'erro', 'mensagem': str(erro)}
 
 
 @eel.expose

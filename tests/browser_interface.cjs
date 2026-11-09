@@ -33,8 +33,9 @@ const painel = {
 };
 const stub = `const painelFixture=${JSON.stringify(painel)};
 window.eel=new Proxy({}, {get(_,nome){ if(nome==='_websocket') return null; return (...args)=>async()=>{
-if(nome==='obter_cotacao_py'){if(args[0]==='JPY')return {status:'erro',mensagem:'Cotação indisponível'};return {status:'sucesso',cotacao:{moeda:args[0],taxa_brl:args[0]==='BRL'?'1':'5',id:args[0],data:'2026-11-05T12:00:00Z'}};}
-if(nome==='converter_moedas_py')return {status:'sucesso',valores:args[0].map(v=>{const brl=Number(v)*(args[1]==='BRL'?1:5);return {brl:brl.toFixed(2),valor:(brl/(args[2]==='BRL'?1:5)).toFixed(2)};})};
+if(nome==='obter_cotacao_contratual_py')return {status:'sucesso',cotacao:{moeda:args[0],taxa_brl:args[1],id:'manual:'+args[0]+':'+args[1],constante:true,fonte:'Cotação contratual informada pelo usuário'}};if(nome==='obter_cotacao_py'){if(args[0]==='JPY')return {status:'erro',mensagem:'Cotação indisponível'};return {status:'sucesso',cotacao:{moeda:args[0],taxa_brl:args[0]==='BRL'?'1':'5',id:args[0],data:'2026-11-05T12:00:00Z'}};}
+if(nome==='converter_entradas_simulacao_py')return {status:'sucesso',valores:args[0].map(v=>{const brl=v.base_brl!=null?Number(v.base_brl):Number(v.valor)*(args[1]==='BRL'?1:5);return {brl:brl.toFixed(2),valor:(brl/(args[2]==='BRL'?1:5)).toFixed(2)};})};
+if(nome==='converter_moedas_py')return {status:'sucesso',valores:args[0].map(v=>{const brl=Number(v)*(args[1]==='BRL'?1:args[1].startsWith('manual:')?Number(args[1].split(':')[2]):5);return {brl:brl.toFixed(2),valor:(brl/(args[2]==='BRL'?1:args[2].startsWith('manual:')?Number(args[2].split(':')[2]):5)).toFixed(2)};})};
 if(nome==='obter_dados_iniciais') return {status:'sucesso',anos_disponiveis:[2026,2025]};
 if(nome==='obter_fator_projecao_py') return '2.031208231';
 if(nome==='obter_painel_fiscal_py') return {status:'sucesso',painel:painelFixture};
@@ -262,9 +263,9 @@ const server = http.createServer((req,res) => {
         assert.equal(await page.locator('#form-simulacao legend').count(),0);
         assert(await page.locator('#fator-rcl').isVisible());
         assert(await page.locator('#fator-rcl').evaluate(el => Boolean(el.compareDocumentPosition(document.querySelector('#form-simulacao > details')) & Node.DOCUMENT_POSITION_FOLLOWING)));
-        await page.locator('#form-simulacao > details summary').click();
-        assert(await page.locator('#form-simulacao > details p').first().isVisible());
-        await page.locator('#form-simulacao > details summary').click();
+        await page.locator('#form-simulacao > details:has(#operacao-premissas-indexador) summary').click();
+        assert(await page.locator('#form-simulacao > details:has(#operacao-premissas-indexador) p').first().isVisible());
+        await page.locator('#form-simulacao > details:has(#operacao-premissas-indexador) summary').click();
         await page.locator('#secao-simulacao .simulacao-formulario').screenshot({path:path.join(output,'simulacao-campos-organizados.png')});
         assert.equal(await page.locator('#nav-configuracoes').count(),0);
         await page.evaluate(()=>mostrarSecao('secao-configuracoes'));
@@ -290,11 +291,38 @@ const server = http.createServer((req,res) => {
         await page.screenshot({path:path.join(output,'mobile.png'),fullPage:true});
         await page.click('#nav-simulacao');
         await page.fill('#valor-requisitado','1.000,00');
+        assert.equal(await page.inputValue('#moeda-entrada'),'BRL');
+        await page.selectOption('#moeda-global','USD');
+        await page.waitForFunction(()=>!document.getElementById('moeda-global').disabled);
+        assert.equal(await page.inputValue('#moeda-entrada'),'USD');
+        assert.match(await page.inputValue('#valor-requisitado'),/200,00/);
+        assert.match(await page.locator('label[for="valor-requisitado"]').textContent(),/USD/);
+        assert.match(await page.locator('#valor-requisitado + small').textContent(),/1\.000,00/);
+        for(const aba of ['nav-painel','nav-limites','nav-simulacao']) {
+            await page.click('#'+aba);
+            assert(await page.locator('#moeda-global').isVisible());
+            assert(await page.locator('#moeda-global').evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.top>=0;}));
+            assert.equal(await page.inputValue('#moeda-global'),'USD');
+        }
+        await page.selectOption('#moeda-global','BRL');
+        await page.waitForFunction(()=>!document.getElementById('moeda-global').disabled);
+        assert.match(await page.inputValue('#valor-requisitado'),/1\.000,00/);
+        await page.selectOption('#moeda-entrada','BRL');
+        await page.waitForFunction(()=>!document.getElementById('moeda-entrada').disabled);
         await page.selectOption('#moeda-global','USD');
         await page.waitForFunction(()=>!document.getElementById('moeda-global').disabled);
         assert.equal(await page.locator('#moeda-global').inputValue(),'USD');
         assert.match(await page.locator('#valor-requisitado').inputValue(), /200,00/);
         assert.match(await page.locator('label[for="valor-requisitado"]').textContent(), /USD/);
+        await page.selectOption('#moeda-entrada','USD');
+        await page.waitForFunction(()=>!document.getElementById('moeda-entrada').disabled);
+        assert.match(await page.locator('#valor-requisitado').inputValue(),/200,00/);
+        await page.selectOption('#moeda-entrada','BRL');
+        await page.waitForFunction(()=>!document.getElementById('moeda-entrada').disabled);
+        assert.equal(await page.inputValue('#moeda-global'),'BRL');
+        await page.selectOption('#moeda-entrada','USD');
+        await page.waitForFunction(()=>!document.getElementById('moeda-entrada').disabled);
+        assert.equal(await page.inputValue('#moeda-global'),'USD');
         assert.match(await page.locator('#cambio-estado').textContent(), /1 USD = R\$/);
         assert.equal(await page.evaluate(()=>CambioUI.referencia().id),'USD');
         await page.click('#nav-painel');
@@ -349,6 +377,25 @@ const server = http.createServer((req,res) => {
         await page.waitForFunction(()=>!document.getElementById('moeda-global').disabled);
         assert.match(await page.locator('#valor-requisitado').inputValue(), /1\.000,00/);
         assert(!await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2));
+        await page.selectOption('#moeda-entrada','BRL');
+        await page.waitForFunction(()=>!document.getElementById('moeda-entrada').disabled);
+        await page.selectOption('#moeda-global','USD');
+        await page.waitForFunction(()=>!document.getElementById('moeda-global').disabled);
+        assert.match(await page.inputValue('#valor-requisitado'),/200,00/);
+        await page.selectOption('#moeda-global','JPY');
+        await page.waitForFunction(()=>!document.getElementById('moeda-global').disabled);
+        assert.equal(await page.inputValue('#moeda-global'),'USD');
+        assert.equal(await page.inputValue('#moeda-entrada'),'USD');
+        assert.match(await page.inputValue('#valor-requisitado'),/200,00/);
+        await page.selectOption('#moeda-entrada','USD');
+        await page.waitForFunction(()=>!document.getElementById('moeda-global').disabled);
+        assert.deepEqual(await page.locator('#moeda-entrada option').allTextContents(),await page.locator('#moeda-global option').allTextContents());
+        assert.equal(await page.locator('#moeda-entrada-estado').isVisible(),false);
+        assert.equal(await page.locator('#moeda-entrada option[value="GLOBAL"]').count(),0);
+        await page.evaluate(()=>window.scrollTo(0,0));
+        await page.evaluate(()=>mostrarMensagem('Verificação do seletor de moeda','success'));
+        assert(await page.getByText('Verificação do seletor de moeda',{exact:true}).evaluate(el=>el.getBoundingClientRect().top>=document.querySelector('.app-topbar').getBoundingClientRect().bottom));
+        await page.screenshot({path:path.join(output,'moeda-topo-integrada.png')});
         assert.deepEqual(errors,[]);
         console.log('Interface: três abas públicas em 1440px e 390px; recursos técnicos preservados sem acesso pelo menu.');
     } finally { if(browser) await browser.close(); server.close(); }

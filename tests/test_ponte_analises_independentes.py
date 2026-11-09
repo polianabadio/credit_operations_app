@@ -23,5 +23,6 @@ def test_falha_mga_preserva_resultados_das_regras():
     assert chamadas == [(2026, 100, None)]
     assert resultado['status'] == 'Análise completa.'
     assert resultado['regras_ordenadas'] == [{'tipo': 'dtp'}]
-    assert resultado['mgaProjection']['validatedConclusion'] is False
-    assert resultado['mgaProjection']['verificationStatus'] == 'Dados incompletos'
+    # O fluxo separado não participa mais desta ponte, conforme a retirada
+    # solicitada da lista de regras. Falha externa não descarta as demais.
+    assert 'mgaProjection' not in resultado

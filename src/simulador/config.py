@@ -135,7 +135,7 @@ EEL_POSITION = "center"
 
 # Configurações da aplicação
 APP_NAME = "Simulador de Operações de Crédito"
-APP_VERSION = "2.1.9"
+APP_VERSION = "2.1.17"
 DEBUG = True
 
 # Criar diretórios necessários

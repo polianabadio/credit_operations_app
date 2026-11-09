@@ -14,6 +14,8 @@ assert.equal(context.lerValorRequisitado('1,5').formatado, 'R$ 1,50');
 assert.equal(context.lerValorRequisitado('R$ 1.000.0000000,00').formatado, 'R$ 10.000.000.000,00');
 assert.equal(context.lerValorRequisitado('R$ 1.000,000').formatado, 'R$ 1.000,00');
 assert.equal(context.lerValorRequisitado('').numero, 0);
+assert.equal(context.lerValorRequisitado('USD ').numero, 0);
+assert.equal(context.lerValorRequisitado('R$ ').formatado, '');
 assert.throws(() => context.lerValorRequisitado('1,234'), /duas casas decimais/);
 assert.throws(() => context.lerValorRequisitado('4854889498749849849849498'), /muito alto/);
 assert.throws(() => context.lerValorRequisitado('-1'), /negativo/);

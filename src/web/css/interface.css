@@ -357,6 +357,8 @@ body > footer > div { font-size: 10px; color: #829087; }
 #modal-feedback[data-regra-tipo="servico_divida"] .tlp-tabela td { padding: 12px 10px; }
 
 .cambio-global { display: grid; justify-items: end; gap: 3px; max-width: 65%; }
+.app-topbar > div:first-child { min-width:0; }
+.cambio-global { flex-shrink:0; }
 .cambio-controles { display: flex; gap: 8px; align-items: center; font-size: 12px; }
 .cambio-controles select { background: #f3f7f4; border: 1px solid #d5e2d9; border-radius: 6px; padding: 5px 8px; max-width: 185px; }
 .cambio-controles button { border: 1px solid #d5e2d9; border-radius: 6px; padding: 3px 9px; color: #08794d; font-size: 18px; }
@@ -379,3 +381,43 @@ td.valor-duas-moedas > small { margin-top:3px; }
 .valor-duas-moedas > small[hidden] { display:none; }
 
 .valor-duas-moedas > span { min-width:0; overflow-wrap:anywhere; }
+
+#resumo-operacao { margin:20px 24px 28px; }
+#resumo-operacao .margem-resumo-visual { grid-template-columns:repeat(2,minmax(0,1fr)); }
+#resumo-operacao .limite-memoria[open] > summary { margin-bottom:12px; }
+#resumo-operacao .limite-memoria > p { margin:8px 0; }
+#resumo-operacao .tlp-tabela-rolagem { max-height:420px; overflow:auto; margin:0; border:1px solid #dce6df; border-radius:8px; }
+#resumo-operacao .tlp-tabela { font-variant-numeric:tabular-nums; }
+#resumo-operacao .tlp-tabela th { position:sticky; top:0; z-index:1; background:#f0f5f2; }
+#resumo-operacao .tlp-tabela tbody tr:last-child td { border-bottom:0; }
+#resumo-operacao .resumo-operacao-totais { background:#eef4ef; font-weight:650; }
+@media(max-width:700px) {
+    #resumo-operacao { margin-inline:16px; }
+    #resumo-operacao .margem-resumo-visual { grid-template-columns:1fr; }
+}
+.condicoes-contratuais-grade { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px 20px; margin:22px 0; }
+.condicoes-contratuais-grade > div { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.condicoes-contratuais-grade label { min-height:32px; display:flex; align-items:flex-end; }
+#operacao-outros-encargos { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; max-height:360px; overflow:auto; }
+#operacao-outros-encargos label { display:flex; flex-direction:column; gap:6px; }
+#operacao-condicoes-contratuais[hidden] { display:none; }
+#calendario-etapas[hidden] { display:none; }
+@media(max-width:700px) { .condicoes-contratuais-grade, #operacao-outros-encargos { grid-template-columns:1fr; } }
+#complemento-limites-campo > label { display:block; margin-top:12px; }
+#complemento-limites-campo input[type=checkbox] { min-height:0; width:auto; accent-color:#08794d; }
+#limites-demais-liberacoes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:16px 0; max-height:320px; overflow:auto; }
+#limites-demais-liberacoes label { display:flex; flex-direction:column; gap:6px; }
+@media(max-width:700px) { #limites-demais-liberacoes { grid-template-columns:1fr; } }
+.resumo-dcl-cenario { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; margin:16px 0; }
+.resumo-dcl-cenario dd { text-align:right; font-weight:600; margin:0; }
+#operacao-liberacoes { max-height:330px; overflow:auto; padding-right:6px; }
+.resumo-dcl-cenario dd { overflow-wrap:anywhere; }
+.condicoes-contratuais-grade > [hidden] { display:none; }
+#form-simulacao .simulacao-grade > #moeda-entrada-campo { grid-column:1 / -1; max-width:310px; width:100%; }
+@media (min-width:1101px) {
+    #form-simulacao .simulacao-grade > #tipo-liberacao-campo,
+    #form-simulacao .simulacao-grade > #periodicidade-liberacao-campo { grid-column:span 3; }
+}
+.cambio-equivalencia { display:block; font-size:11px; font-weight:400; color:#526c61; line-height:1.4; overflow-wrap:anywhere; }
+.cambio-equivalencia[hidden] { display:none; }
+#operacao-liberacoes > label[hidden], #operacao-outros-encargos > label[hidden] { display:none; }

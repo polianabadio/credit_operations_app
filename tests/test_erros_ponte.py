@@ -34,8 +34,14 @@ def test_validacao_da_operacao_chega_ao_usuario():
     assert ponte(falhar)({})['mensagem'].startswith('Confira a data')
 
 
-def test_resultado_continua_disponivel():
-    resultado = ponte(lambda entrada: {'bases_fluxo': [{'liberacaoNovaOperacao': '1000'}],
+def test_resultado_continua_disponivel(monkeypatch):
+    # A ponte agora compõe também o resumo: a fixture deve conter o principal
+    # e a base anual que o cálculo real retorna, sem consultar cache externo.
+    from src.simulador import data_access
+    monkeypatch.setattr(data_access, 'obter_registros_dcl', lambda ano: [])
+    resultado = ponte(lambda entrada: {'bases_fluxo': [{'ano':2026,'liberacaoNovaOperacao': '1000','rclProjetada':'10000'}],
+                                      'fluxo': {'amortizacao_total':'1000'},
                                       'servico_input': {'linhas': []}})({'ano': 2026})
     assert resultado['status'] == 'sucesso'
     assert resultado['resultado']['analise']['status'] == 'Análise completa.'
+    assert resultado['resultado']['resumo_limites']['dcl']['aprovado'] is None

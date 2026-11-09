@@ -60,31 +60,30 @@ function mostrarSecao(nomeSecao) {
 
 // --- CONFIGURAÇÃO DE EVENTOS ---
 
-function configurarEventListeners() {
-    const campoValorRequisitado = document.getElementById('valor-requisitado');
-    campoValorRequisitado.addEventListener('input', () => {
-        campoValorRequisitado.setCustomValidity('');
-        campoValorRequisitado.removeAttribute('aria-invalid');
-        const erro = document.getElementById('valor-erro');
+function configurarCampoMonetario(campo, erro, lerValor) {
+    function limparErro() {
+        campo.setCustomValidity('');
+        campo.removeAttribute('aria-invalid');
         erro.hidden = true;
         erro.textContent = '';
-    });
-    campoValorRequisitado.addEventListener('blur', () => {
+    }
+    campo.addEventListener('input', limparErro);
+    campo.addEventListener('blur', () => {
         try {
-            const normalizado = lerValorRequisitado(campoValorRequisitado.value);
-            if (document.getElementById('operacao-indexador')?.value === 'CAMBIAL') {
-                const [inteiro,centavos] = normalizarValorMonetario(campoValorRequisitado.value).numero.split('.');
-                campoValorRequisitado.value = `${document.getElementById('operacao-moeda-contrato').value} ${inteiro.replace(/\B(?=(\d{3})+(?!\d))/g,'.')},${centavos}`;
-            } else campoValorRequisitado.value = normalizado.formatado;
-            campoValorRequisitado.setCustomValidity('');
-        } catch (error) {
-            campoValorRequisitado.setCustomValidity(mensagemErroAmigavel(error));
-            campoValorRequisitado.setAttribute('aria-invalid', 'true');
-            const erro = document.getElementById('valor-erro');
-            erro.textContent = mensagemErroAmigavel(error);
+            campo.value = lerValor(campo.value)?.formatado ?? '';
+            limparErro();
+        } catch (falha) {
+            const mensagem = mensagemErroAmigavel(falha);
+            campo.setCustomValidity(mensagem);
+            campo.setAttribute('aria-invalid', 'true');
+            erro.textContent = mensagem;
             erro.hidden = false;
         }
     });
+}
+
+function configurarEventListeners() {
+    configurarCampoMonetario(document.getElementById('valor-requisitado'), document.getElementById('valor-erro'), lerValorRequisitado);
     // Formulário principal de simulação
     document.getElementById('form-simulacao').addEventListener('submit', (e) => {
         e.preventDefault();
@@ -93,12 +92,18 @@ function configurarEventListeners() {
     document.getElementById('ano').addEventListener('change', montarLinhasServico);
     document.getElementById('ano-fim-contrato').addEventListener('change', montarLinhasServico);
     document.getElementById('fator-rcl').addEventListener('change', async (e) => {
-        const resposta = await eel.salvar_fator_projecao_py(e.target.value)();
-        if (resposta.status === 'sucesso') {
-            e.target.value = resposta.fator;
+        const campo = e.target;
+        const valor = campo.value;
+        if (!valor || !campo.validity.valid) return;
+        try {
+            const resposta = await eel.salvar_fator_projecao_py(valor)();
+            if (campo.value !== valor) return;
+            if (resposta.status !== 'sucesso') return mostrarMensagem(resposta.mensagem, 'error');
+            campo.value = resposta.fator;
             document.getElementById('valor-fator-resumo').textContent = `· ${resposta.fator}`;
+        } catch (erro) {
+            if (campo.value === valor) mostrarMensagem(mensagemErroAmigavel(erro), 'error');
         }
-        else mostrarMensagem(resposta.mensagem, 'error');
     });
     document.getElementById('fluxo-adicionar-ano').addEventListener('click', adicionarLinhaFluxoCredito);
     document.getElementById('form-fluxo-credito').addEventListener('submit', executarFluxoCredito);
@@ -158,7 +163,7 @@ async function executarFluxoCredito(event) {
     const destino = document.getElementById('fluxo-credito-resultado');
     let linhas;
     let versao, versaoEspecifica;
-    try { linhas = obterEntradaFluxoCompartilhada(); versao = revisaoOperacao; versaoEspecifica = revisaoFluxo; }
+    try { await atualizarPrazoTotal(); linhas = obterEntradaFluxoCompartilhada(); versao = revisaoOperacao; versaoEspecifica = revisaoFluxo; }
     catch (erro) {
         destino.textContent = mensagemErroAmigavel(erro);
         registrarAvaliacaoComplementar('fluxo', 'Dados insuficientes', mensagemErroAmigavel(erro));
@@ -397,6 +402,7 @@ async function executarSimulacao(usarProjecaoServico = false) {
     mostrarCarregamento(true, botaoCarregamento);
 
     try {
+        await atualizarPrazoTotal();
         const comum = obterOperacaoCompartilhada();
         const versao = revisaoOperacao;
         const versaoServico = revisaoServico;
@@ -419,6 +425,7 @@ async function executarSimulacao(usarProjecaoServico = false) {
         erroOperacao.textContent = '';
         erroOperacao.hidden = true;
         renderizarResultados(resultado);
+        renderizarResumoOperacao(calculo);
         atualizarContextoOperacao();
         document.getElementById('operacao-aviso').textContent = '';
         if (!modalServico && document.getElementById('tbody-resultados').children.length) {
@@ -514,17 +521,19 @@ function montarLinhasServico() {
     const ano = Number(document.getElementById('ano').value);
     const campoFim = document.getElementById('ano-fim-contrato');
     if (!Number.isInteger(ano) || ano < 1900) return;
+    const terminoPendente = campoFim.disabled && campoFim.value === '';
     const escolhaAnterior = Number(campoFim.value);
     const fim = Number.isInteger(escolhaAnterior) && escolhaAnterior >= ano && escolhaAnterior <= ano + 50
         ? escolhaAnterior : ano;
     campoFim.replaceChildren();
+    if (terminoPendente) campoFim.add(new Option('A calcular', ''));
     for (let anoOpcao = ano; anoOpcao <= ano + 50; anoOpcao++) {
         const option = document.createElement('option');
         option.value = String(anoOpcao);
         option.textContent = String(anoOpcao);
         campoFim.appendChild(option);
     }
-    campoFim.value = String(fim);
+    campoFim.value = terminoPendente ? '' : String(fim);
     const criar = (container, anos, prefixo) => {
         const mesmoAno = container.dataset.anoBase === String(ano);
         const anteriores = mesmoAno ? new Map([...container.querySelectorAll('[data-ano]')]
@@ -708,6 +717,8 @@ function renderizarResultados(resultado) {
             tr.children[2].textContent = `${formatarPercentual(regra.dados_calculados.percentual)} — ${regra.descricao}`;
         }
         if (regra.tipo === 'dcl') {
+            tr.children[0].textContent='DCL/RCL — posição publicada';
+            tr.children[2].textContent=`Posição publicada. ${regra.descricao}`;
             tr.children[1].querySelector('span').textContent = regra.aprovado === null
                 ? 'Sem informação' : regra.aprovado ? 'Limite atendido' : 'Limite excedido';
         }
@@ -1367,19 +1378,30 @@ function normalizarValorMonetario(valor, nomeCampo = 'Valor') {
     return {numero: `${inteiro}.${centavos}`, formatado: `${typeof CambioUI !== 'undefined' ? CambioUI.simbolo() : 'R$'} ${milhar},${centavos}`};
 }
 
-function lerValorRequisitado(valor) {
+function lerValorEntradaMonetaria(valor, nomeCampo) {
     const texto = String(valor ?? '').trim();
-    if (!texto) return {numero: 0, formatado: ''};
     const decimais = texto.split(',')[1] || '';
     if (decimais.length > 2 && /[1-9]/.test(decimais.slice(2))) {
-        throw new Error('Valor requisitado: informe no máximo duas casas decimais.');
+        throw new Error(`${nomeCampo}: informe no máximo duas casas decimais.`);
     }
-    const dinheiro = normalizarValorMonetario(texto, 'Valor requisitado');
+    const dinheiro = normalizarValorMonetario(texto, nomeCampo);
+    if (!dinheiro) return null;
+    if(typeof CambioUI!=='undefined' && CambioUI.referenciaEntrada) {
+        const unidade=CambioUI.referenciaEntrada().moeda;
+        const codigo=texto.match(/^(BRL|USD|EUR|GBP|JPY|CHF|CAD|AUD|CNY)\b/)?.[1] || (texto.startsWith('US$')?'USD':texto.startsWith('R$')?'BRL':null);
+        if(codigo && codigo!==unidade) throw new Error(`O valor está identificado em ${codigo}. Selecione essa moeda no campo de preenchimento ou informe o valor em ${unidade}.`);
+    }
+
     const centavos = BigInt(dinheiro.numero.replace('.', ''));
     if (centavos > BigInt(Number.MAX_SAFE_INTEGER)) {
-        throw new Error('Valor requisitado muito alto para uma simulação precisa.');
+        throw new Error(`${nomeCampo} muito alto para uma simulação precisa.`);
     }
-    return {numero: Number(dinheiro.numero), formatado: dinheiro.formatado};
+    return dinheiro;
+}
+
+function lerValorRequisitado(valor) {
+    const dinheiro = lerValorEntradaMonetaria(valor, 'Valor requisitado');
+    return {numero: Number(dinheiro?.numero ?? 0), formatado: dinheiro?.formatado ?? ''};
 }
 
 function formatarPercentual(valor) {
@@ -1390,6 +1412,8 @@ function mostrarMensagem(mensagem, tipo = 'info') {
      // Criar elemento de notificação
     const notificacao = document.createElement('div');
     notificacao.className = `fixed top-4 right-4 max-w-md whitespace-pre-line p-4 rounded-lg shadow-lg z-50 ${obterClasseTipo(tipo)}`;
+    const topo=document.querySelector('.app-topbar');
+    if(topo) notificacao.style.top=`${Math.max(16,topo.getBoundingClientRect().bottom+8)}px`;
     notificacao.textContent = mensagemErroAmigavel(mensagem);
     
     document.body.appendChild(notificacao);
