@@ -645,6 +645,14 @@ function popularSeletorDeAnos(anos) {
 
 function resumoLimiteCaed(regra) {
     const dados = regra.dados_calculados || {};
+    const recorte = dados.recorte_sadipem;
+    if (recorte && regra.aprovado == null) {
+        return {
+            rotulo: recorte.dentro_do_limite ? `Dentro do limite até ${recorte.ano_final}` : `Acima do limite até ${recorte.ano_final}`,
+            classe: 'bg-gray-100 text-gray-800',
+            descricao: `Média do período informado: ${formatarPercentual(recorte.media)} · Limite: 11,5%. Avaliação completa pendente.`
+        };
+    }
     const numerico = dados.resultado_numerico || (regra.aprovado === true ? 'ATENDE' : regra.aprovado === false ? 'NAO_ATENDE' : null);
     const atende = numerico === 'ATENDE';
     const parcial = numerico && regra.aprovado == null;
@@ -1100,7 +1108,8 @@ function renderizarServicoDivida(regra, container) {
     baseContainer.appendChild(detalhesBase);
 
     // As pendências são avaliadas pelo backend; não inferir ausência por campos legados.
-    if (dados.motivos?.length && regra.aprovado == null && !dados.resultado_numerico) {
+    const recorte = dados.recorte_sadipem;
+    if (dados.motivos?.length && regra.aprovado == null && !dados.resultado_numerico && !recorte) {
         const aviso = secao('Pendências da análise');
         aviso.classList.add('servico-warning');
         aviso.appendChild(criar('p', '', regra.descricao));
@@ -1110,6 +1119,11 @@ function renderizarServicoDivida(regra, container) {
         const projecao = criar('details', 'servico-section servico-exercicio-detalhes');
         projecao.open = true;
         projecao.appendChild(criar('summary', '', 'Composição anual e médias do CAED'));
+        if (recorte) {
+            const resumo = resumoLimiteCaed(regra);
+            projecao.appendChild(criar('p', '', `${resumo.rotulo}. ${resumo.descricao}`));
+            projecao.appendChild(criar('p', 'servico-source', `O SADIPEM detalha as demais dívidas até ${recorte.ano_final}. A linha “Restante a pagar” reúne os valores posteriores, sem distribuição por ano.`));
+        }
         if (dados.media_termino != null) {
             const medias = [
                 `Até o término: ${formatarPercentual(dados.media_termino)}`,
@@ -1139,10 +1153,18 @@ function renderizarServicoDivida(regra, container) {
         const thead = criar('thead', ''); thead.appendChild(cabecalho); tabela.appendChild(thead);
         const tbody = criar('tbody', '');
         for (const item of dados.linhas) {
+            if (recorte && item.ano > recorte.ano_final) continue;
             const tr = criar('tr', '');
             for (const valor of [item.ano, moedaOuIndisponivel(item.juros_encargos), moedaOuIndisponivel(item.amortizacao),
                 moedaOuIndisponivel(item.demais_operacoes), moedaOuIndisponivel(item.caed_total), moedaOuIndisponivel(item.rcl_projetada),
                 item.percentual == null ? 'Não disponível' : formatarPercentual(item.percentual * 100)]) tr.appendChild(criar('td', '', valor));
+            tbody.appendChild(tr);
+        }
+        if (recorte) {
+            const tr = criar('tr', 'servico-restante');
+            for (const valor of ['Restante a pagar', moedaOuIndisponivel(recorte.juros_encargos_restantes),
+                moedaOuIndisponivel(recorte.amortizacao_restante), moedaOuIndisponivel(recorte.demais_operacoes_restantes),
+                '—', '—', '—']) tr.appendChild(criar('td', '', valor));
             tbody.appendChild(tr);
         }
         tabela.appendChild(tbody); rolagem.appendChild(tabela); projecao.appendChild(rolagem); resultados.appendChild(projecao);

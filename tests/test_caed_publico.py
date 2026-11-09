@@ -100,6 +100,28 @@ def test_ano_sem_informacao_impede_media_publica():
     assert resultado['aprovado'] is None
 
 
+def test_recorte_com_saldo_posterior_informa_resultado_sem_aprovar_prazo_inteiro():
+    ent = entrada(('1',) * 26, [None] * 26)
+    ent.pop('cobertura_demais')
+    registros = [registro(ano, '2') for ano in range(2026, 2051)]
+    saldo = registro('Restante a pagar', '3516222762.75')
+    publico = obter_pagamentos_caed(2026, 2051, '2026-10-28', client=Cliente([*registros, saldo]))
+    resultado = avaliar_caed(2026, integrar_pagamentos_caed(ent, publico), referencia('1000'), fator())
+    dados = resultado['dados_calculados']
+    assert dados['recorte_sadipem']['ano_final'] == 2050
+    assert dados['recorte_sadipem']['media'] == .3
+    assert dados['recorte_sadipem']['dentro_do_limite'] is True
+    assert dados['recorte_sadipem']['nova_operacao_restante'] == '1'
+    assert dados['recorte_sadipem']['demais_operacoes_restantes'] == '3516222762.75'
+    assert dados['linhas'][-1]['demais_operacoes'] is None
+    assert dados['media_termino'] is None
+    assert resultado['aprovado'] is None
+
+    com_lacuna = obter_pagamentos_caed(2026, 2051, '2026-10-28', client=Cliente([*registros[:1], *registros[2:], saldo]))
+    sem_recorte = avaliar_caed(2026, integrar_pagamentos_caed(ent, com_lacuna), referencia('1000'), fator())
+    assert 'recorte_sadipem' not in sem_recorte['dados_calculados']
+
+
 def test_confirmacao_explicita_nao_e_substituida_pela_referencia_publica():
     ent = integrar_pagamentos_caed(entrada(('1',), [None]), consultar([registro(valor='2')]))
     resultado = avaliar_caed(2026, ent, referencia('1000'), fator())

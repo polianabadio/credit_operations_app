@@ -103,6 +103,51 @@ def avaliar_alternativas(linhas):
                 'limite_percentual': LIMITE, 'aprovado': determinante <= LIMITE}
 
 
+def _recorte_sadipem(linhas, fonte, motivos):
+    """Diagnóstico numérico do trecho anual publicado, separado da conclusão fiscal."""
+    if not isinstance(fonte, dict) or not fonte.get('snapshot') or fonte.get('motivos'):
+        return None
+    pagamentos = fonte.get('pagamentos')
+    if not isinstance(pagamentos, dict):
+        return None
+    publicados = [linha['ano'] for linha in linhas if str(linha['ano']) in pagamentos]
+    if not publicados:
+        return None
+    ultimo = max(publicados)
+    anuais = [linha for linha in linhas if linha['ano'] <= ultimo]
+    posteriores = [linha for linha in linhas if linha['ano'] > ultimo]
+    if not anuais or not posteriores or not any(l['demais_operacoes'] is None for l in posteriores):
+        return None
+    pendencias_posteriores = {f"{linha['ano']}.demais_operacoes" for linha in posteriores}
+    if any(m['codigo'] != 'COBERTURA_DEMAIS_AUSENTE' and not (
+        m['codigo'] == 'PAGAMENTO_AUSENTE_OU_INVALIDO' and m.get('campo') in pendencias_posteriores
+    ) for m in motivos):
+        return None
+    if any(str(l['ano']) not in pagamentos or l['percentual'] is None for l in anuais):
+        return None
+    elegiveis = [linha for linha in anuais if linha['operacao_pleiteada'] > 0]
+    if not elegiveis:
+        return None
+    with localcontext() as contexto:
+        contexto.prec = 50
+        media = sum(linha['percentual'] for linha in elegiveis) / len(elegiveis)
+        saldos = fonte.get('saldos_sem_ano')
+        saldo = None
+        if isinstance(saldos, list) and len(saldos) == 1 and isinstance(saldos[0], dict):
+            try:
+                saldo = valor_monetario(saldos[0].get('demais_operacoes'), 'Restante a pagar')
+            except ValueError:
+                pass
+        return {
+            'ano_final': ultimo, 'anos': [l['ano'] for l in elegiveis], 'media': media * 100,
+            'dentro_do_limite': media <= LIMITE,
+            'juros_encargos_restantes': sum(l['juros_encargos'] for l in posteriores),
+            'amortizacao_restante': sum(l['amortizacao'] for l in posteriores),
+            'nova_operacao_restante': sum(l['operacao_pleiteada'] for l in posteriores),
+            'demais_operacoes_restantes': saldo,
+        }
+
+
 def avaliar_caed(ano, entrada, referencia, fator, motivos_iniciais=None):
     """Produz DTO e memória inclusive em ausência, conflito e retornos antecipados."""
     motivos = list(motivos_iniciais or [])
@@ -192,6 +237,10 @@ def avaliar_caed(ano, entrada, referencia, fator, motivos_iniciais=None):
     dados['memoria_exata']['linhas'] = memoria_decimal(exatas)
     dados['linhas'] = [{k: float(v) if isinstance(v, Decimal) else v for k, v in l.items()} for l in exatas]
     referencia_publica = dados['referencia_publica_demais']
+    recorte = _recorte_sadipem(exatas, referencia_publica, motivos)
+    if recorte:
+        dados['memoria_exata']['recorte_sadipem'] = memoria_decimal(recorte)
+        dados['recorte_sadipem'] = {**dados['memoria_exata']['recorte_sadipem'], 'media': float(recorte['media'])}
     apenas_cobertura_publica = bool(motivos and referencia_publica and referencia_publica.get('pagamentos')) and all(
         m['codigo'] == 'COBERTURA_DEMAIS_AUSENTE' for m in motivos)
     if motivos and not apenas_cobertura_publica:

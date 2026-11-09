@@ -23,8 +23,16 @@ fator=dict(valor='1.02031208231',fonte='Parâmetro local do usuário',vigencia_i
 dados=calcular_operacao(convertida,serie_ipca={},rcl_base=referencia['valor'],referencia_rcl=referencia,fator_projecao=fator)
 dados['cotacao_entrada']=cotacao;dados['fluxo']['cotacao_entrada']=cotacao
 servico=dados['servico_input'];servico['data_referencia']='2026-11-06'
-for linha in servico['linhas']:linha['demais_operacoes']='1000000'
-servico['cobertura_demais']=dict(completa=True,fonte='Fixture do teste',data_referencia='2026-11-06')
+if entrada.get('tipo_liberacao') == 'semestral':
+    from src.simulador.caed_publico import integrar_pagamentos_caed
+    servico = integrar_pagamentos_caed(servico, {
+        'fonte': 'SADIPEM · referência fictícia do teste', 'snapshot': {'numeroPvl': 'PVL teste'},
+        'pagamentos': {ano: '1000000' for ano in range(entrada['ano'], entrada['fim'])},
+        'saldos_sem_ano': [{'rotulo': 'Restante a pagar', 'demais_operacoes': '3516222762.75'}],
+    })
+else:
+    for linha in servico['linhas']:linha['demais_operacoes']='1000000'
+    servico['cobertura_demais']=dict(completa=True,fonte='Fixture do teste',data_referencia='2026-11-06')
 caed=avaliar_caed(2026,servico,referencia,fator)
 dados['analise']=dict(status='Análise completa.',regras_ordenadas=[caed],regras_violadas=[],circuit_breaker=False)
 c=entrada.get('complemento_limites') or {}

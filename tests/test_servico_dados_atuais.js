@@ -54,3 +54,13 @@ assert(!resumo.descricao.includes('Sem informação'));
 assert(!resumo.descricao.includes('cobertura'));
 assert.equal(contexto.resumoLimiteCaed({aprovado: null, dados_calculados: {}}).rotulo, 'Cálculo incompleto');
 assert.equal(contexto.resumoLimiteCaed({aprovado: false, dados_calculados: {percentual_determinante: 12}}).rotulo, 'Limite excedido');
+
+const recorte = {ano_final: 2026, media: .3, dentro_do_limite: true, juros_encargos_restantes: '1',
+    amortizacao_restante: '2', demais_operacoes_restantes: '3516222762.75'};
+const parcial = {aprovado: null, dados_calculados: {...publico, resultado_numerico: null, media_termino: null, recorte_sadipem: recorte}};
+contexto.renderizarServicoDivida(parcial, new No());
+const recorteTela = ids.get('servico-resultados').texto;
+assert(recorteTela.includes('Dentro do limite até 2026'));
+assert(recorteTela.includes('Restante a pagar'));
+assert(recorteTela.includes('3.516.222.762,75'));
+assert(recorteTela.includes('Avaliação completa pendente'));

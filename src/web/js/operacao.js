@@ -553,6 +553,7 @@ function renderizarResumoOperacao(calculo) {
     }
     const regras = calculo.analise?.regras_ordenadas || [...(calculo.analise?.regras_cumpridas || []), ...(calculo.analise?.regras_violadas || []), ...(calculo.analise?.regras_sem_informacao || [])];
     const caed = regras.find(regra => regra.tipo === 'servico_divida')?.dados_calculados;
+    const recorte = caed?.recorte_sadipem;
     const medias = [];
     if (caed?.media_termino != null) medias.push(`Média até o término: ${formatarPercentual(caed.media_termino)}`);
     if (caed?.media_2027 != null) medias.push(`Média até 2027: ${formatarPercentual(caed.media_2027)}`);
@@ -575,6 +576,7 @@ function renderizarResumoOperacao(calculo) {
     const memoria = criar('details', '', 'limite-memoria');
     memoria.open = !fluxo.planilha;
     memoria.append(criar('summary', fluxo.planilha ? 'Fluxo fiscal anual · pagamentos pelo ano de vencimento' : 'Fluxo anual: recebimentos e pagamentos'));
+    if (recorte) memoria.append(criar('p', `CAED/RCL até ${recorte.ano_final}: ${formatarPercentual(recorte.media)} · ${recorte.dentro_do_limite ? 'Dentro do limite' : 'Acima do limite'} no período informado.`, 'painel-help'));
     const rolagem = criar('div', '', 'tlp-tabela-rolagem');
     const tabela = criar('table', '', 'tlp-tabela');
     const cabecalho = tabela.createTHead().insertRow();
@@ -585,10 +587,16 @@ function renderizarResumoOperacao(calculo) {
     const anuais = new Map((fluxo.anuais || []).map(linha => [Number(linha.ano), linha]));
     const composicao = new Map((caed?.linhas || []).map(linha => [Number(linha.ano), linha]));
     for (const base of calculo.bases_fluxo || []) {
+        if (recorte && base.ano > recorte.ano_final) continue;
         const anual = anuais.get(Number(base.ano));
         const linha = composicao.get(Number(base.ano));
         const tr = corpo.insertRow();
         for (const valor of [base.ano, moeda(base.liberacaoNovaOperacao), moeda(anual?.total), moeda(linha?.demais_operacoes), moeda(linha?.caed_total), moeda(linha?.rcl_projetada ?? base.rclProjetada), linha?.percentual == null ? 'Não disponível' : formatarPercentual(linha.percentual * 100)]) tr.insertCell().textContent = valor;
+    }
+    if (recorte) {
+        const tr = corpo.insertRow();
+        tr.className = 'servico-restante';
+        for (const valor of ['Restante a pagar', '—', moeda(recorte.nova_operacao_restante), moeda(recorte.demais_operacoes_restantes), '—', '—', '—']) tr.insertCell().textContent = valor;
     }
     rolagem.append(tabela); memoria.append(rolagem); conteudo.append(memoria);
     if (calculo.resumo_limites) renderizarLimitesCenario(conteudo, calculo.resumo_limites);

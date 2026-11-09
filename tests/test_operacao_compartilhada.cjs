@@ -338,6 +338,9 @@ const planilha = page.locator('#resumo-operacao details').filter({hasText:'Resum
 assert.match(await planilha.locator('tbody tr').first().textContent(), /241\.035,35/);
 assert.equal(await planilha.locator('tbody tr').count(), 26);
 assert.match(await page.locator('#resumo-operacao').textContent(), /Fluxo fiscal anual · pagamentos pelo ano de vencimento/);
+assert.match(await page.locator('#resumo-operacao .servico-restante').textContent(), /Restante a pagar.*3\.516\.222\.762,75/);
+assert.match(await page.locator('#tbody-resultados').textContent(), /Dentro do limite até 2050/);
+assert.match(await page.locator('#tbody-resultados').textContent(), /Avaliação completa pendente/);
 assert.deepEqual(erros,[]);
 console.log('Condições na página principal, cálculo central no backend, memória e RCL compartilhadas, invalidação e tela móvel validados.');
 }finally{if(browser)await browser.close();server.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

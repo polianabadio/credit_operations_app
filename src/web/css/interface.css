@@ -391,6 +391,7 @@ td.valor-duas-moedas > small { margin-top:3px; }
 #resumo-operacao .tlp-tabela th { position:sticky; top:0; z-index:1; background:#f0f5f2; }
 #resumo-operacao .tlp-tabela tbody tr:last-child td { border-bottom:0; }
 #resumo-operacao .resumo-operacao-totais { background:#eef4ef; font-weight:650; }
+.tlp-tabela tbody tr.servico-restante { background:#eef4ef; font-weight:650; }
 @media(max-width:700px) {
     #resumo-operacao { margin-inline:16px; }
     #resumo-operacao .margem-resumo-visual { grid-template-columns:1fr; }
